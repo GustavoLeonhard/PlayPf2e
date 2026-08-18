@@ -1,0 +1,224 @@
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.steps {
+  display: flex;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0 0 0.4rem;
+  overflow-x: auto;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  padding: 0.35rem 0.7rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+
+  &.active {
+    border-color: var(--accent);
+    color: var(--accent-strong);
+  }
+
+  &.done {
+    color: var(--text);
+  }
+}
+
+.num {
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: var(--surface-2);
+  font-size: 0.75rem;
+}
+
+.body {
+  min-height: 50vh;
+}
+
+.nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+/* --- atributos */
+.abilities {
+  display: grid;
+  grid-template-columns: 1fr minmax(200px, 260px);
+  gap: 1rem;
+  align-items: start;
+}
+
+.pick {
+  margin-bottom: 1rem;
+}
+
+.opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.chip {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+
+  &.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #221b10;
+    font-weight: 600;
+  }
+
+  &.locked {
+    opacity: 0.75;
+    cursor: default;
+  }
+}
+
+.hint {
+  font-size: 0.78rem;
+}
+
+.flaw {
+  border-left: 3px solid var(--danger);
+  padding-left: 0.6rem;
+}
+
+.score-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+
+  .val {
+    font-weight: 600;
+  }
+
+  .mod {
+    color: var(--accent);
+    min-width: 2rem;
+    text-align: right;
+  }
+}
+
+/* --- skills */
+.skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+}
+
+.skill {
+  display: flex;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+
+/* --- dotes */
+.feats {
+  display: grid;
+  gap: 1.5rem;
+}
+
+/* --- equipo */
+.gear {
+  display: grid;
+  gap: 1rem;
+}
+
+.bag-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.namecard {
+  max-width: 480px;
+}
+
+.summary {
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 720px) {
+  .abilities {
+    grid-template-columns: 1fr;
+  }
+}
+
+.deity-block {
+  margin-top: 1rem;
+}
+
+.deity-summary {
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  padding: 0.5rem 0.7rem;
+  border-radius: 4px;
+  font-size: 0.88rem;
+}
+
+.custom-lang {
+  margin-top: 0.8rem;
+  max-width: 320px;
+
+  label {
+    display: block;
+    font-size: 0.8rem;
+    margin-bottom: 0.2rem;
+  }
+}
+
+.budget {
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  padding: 0.5rem 0.7rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+
+  &.over {
+    border-left-color: var(--danger);
+  }
+}
+
+.detalles {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1rem;
+
+  label {
+    display: grid;
+    gap: 0.2rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+}

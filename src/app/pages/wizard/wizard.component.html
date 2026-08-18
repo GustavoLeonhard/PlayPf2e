@@ -1,0 +1,438 @@
+<div class="container">
+  <div class="head">
+    <h1>Nuevo personaje</h1>
+    <a class="btn ghost" routerLink="/characters">Cancelar</a>
+  </div>
+
+  <ol class="steps">
+    @for (s of steps(); track s.id; let i = $index) {
+      <li>
+        <button
+          type="button"
+          class="step"
+          [class.active]="i === stepIndex()"
+          [class.done]="i < stepIndex()"
+          (click)="goTo(i)"
+        >
+          <span class="num">{{ i + 1 }}</span>
+          <span class="lbl">{{ s.label }}</span>
+        </button>
+      </li>
+    }
+  </ol>
+
+  <section class="body">
+    @switch (step().id) {
+      @case ('ancestry') {
+        <app-option-picker
+          [options]="ancestryOptions()"
+          [selectedId]="build().ancestry"
+          (selectedIdChange)="setAncestry($event)"
+        />
+      }
+
+      @case ('heritage') {
+        @if (heritageOptions().length) {
+          <app-option-picker
+            [options]="heritageOptions()"
+            [selectedId]="build().heritage"
+            (selectedIdChange)="setHeritage($event)"
+          />
+        } @else {
+          <p class="muted">Elegí primero una ancestría.</p>
+        }
+      }
+
+      @case ('background') {
+        <app-option-picker
+          [options]="backgroundOptions()"
+          [selectedId]="build().background"
+          (selectedIdChange)="setBackground($event)"
+        />
+      }
+
+      @case ('class') {
+        <app-option-picker
+          [options]="classOptions()"
+          [selectedId]="build().class"
+          (selectedIdChange)="setClass($event)"
+        />
+      }
+
+      @case ('deity') {
+        <div class="card">
+          <h3>Alineamiento</h3>
+          <p class="muted">Todo personaje de Legacy tiene uno. En el Remaster se eliminó.</p>
+          <div class="opts">
+            @for (a of alignments; track a) {
+              <button class="chip" [class.on]="build().alignment === a" (click)="setAlignment(a)">
+                {{ a }} <small class="muted">{{ alignmentNames[a] }}</small>
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="deity-block">
+          <h3>
+            Deidad
+            @if (needsDeity()) {
+              <small class="muted">— tu clase la necesita</small>
+            } @else {
+              <small class="muted">— opcional</small>
+            }
+          </h3>
+
+          @if (deity(); as d) {
+            <p class="deity-summary">
+              <strong>{{ d.name }}</strong>
+              @if (d.favoredWeapons.length) {
+                · arma favorita: <strong>{{ d.favoredWeapons.join(', ') }}</strong>
+              }
+              @if (d.divineFont.length) {
+                · divine font: {{ d.divineFont.join('/') }}
+              }
+              @if (d.domains.length) {
+                · dominios: {{ d.domains.join(', ') }}
+              }
+            </p>
+          }
+
+          <app-option-picker
+            [options]="deityOptions()"
+            [selectedId]="build().deity"
+            (selectedIdChange)="setDeity($event)"
+          />
+        </div>
+      }
+
+      @case ('abilities') {
+        <div class="abilities">
+          <div class="card choices">
+            @if (ancestry(); as anc) {
+              @if (anc.flaws.length) {
+                <p class="muted flaw">
+                  {{ anc.name }} tiene penalidad en:
+                  @for (set of anc.flaws; track $index) {
+                    @for (f of set; track f) {
+                      <strong>{{ abilityNames[f] }}</strong>
+                    }
+                  }
+                </p>
+              }
+
+              @for (set of ancestryBoostSets(); track $index; let i = $index) {
+                <div class="pick">
+                  <label class="muted">Boost de ancestría {{ i + 1 }}</label>
+                  <div class="opts">
+                    @for (ab of set; track ab) {
+                      <button
+                        type="button"
+                        class="chip"
+                        [class.on]="build().abilityBoosts.ancestry[i] === ab"
+                        (click)="pickBoost('ancestry', i, ab)"
+                      >
+                        {{ abilityNames[ab] }}
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            }
+
+            @for (set of backgroundBoostSets(); track $index; let i = $index) {
+              <div class="pick">
+                <label class="muted">Boost de trasfondo {{ i + 1 }}</label>
+                <div class="opts">
+                  @for (ab of set; track ab) {
+                    <button
+                      type="button"
+                      class="chip"
+                      [class.on]="build().abilityBoosts.background[i] === ab"
+                      (click)="pickBoost('background', i, ab)"
+                    >
+                      {{ abilityNames[ab] }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+
+            @if (classKeyOptions().length) {
+              <div class="pick">
+                <label class="muted">Atributo clave de clase</label>
+                <div class="opts">
+                  @for (ab of classKeyOptions(); track ab) {
+                    <button
+                      type="button"
+                      class="chip"
+                      [class.on]="build().abilityBoosts.class[0] === ab"
+                      (click)="pickBoost('class', 0, ab)"
+                    >
+                      {{ abilityNames[ab] }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+
+            <div class="pick">
+              <label class="muted">
+                4 boosts libres — elegidos {{ build().abilityBoosts.level1.length }}/4
+                <span class="hint">(no se puede repetir el mismo)</span>
+              </label>
+              <div class="opts">
+                @for (ab of abilityList; track ab) {
+                  <button
+                    type="button"
+                    class="chip"
+                    [class.on]="build().abilityBoosts.level1.includes(ab)"
+                    (click)="toggleFreeBoost(ab)"
+                  >
+                    {{ abilityNames[ab] }}
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+
+          <div class="card scores">
+            <h3>Resultado</h3>
+            @for (ab of abilityList; track ab) {
+              <div class="score-row">
+                <span>{{ abilityNames[ab] }}</span>
+                <span class="val">{{ previewScores()[ab] }}</span>
+                <span class="mod">{{ previewMods()[ab] >= 0 ? '+' : '' }}{{ previewMods()[ab] }}</span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      @case ('skills') {
+        <div class="card">
+          <h3>Habilidades entrenadas</h3>
+          <p class="muted">
+            Tu clase y trasfondo ya entrenan algunas. Te quedan
+            <strong>{{ freeSkillCount() - build().trainedSkills.length }}</strong> por elegir
+            ({{ freeSkillCount() }} en total, incluyendo el bonus por Inteligencia).
+          </p>
+
+          <div class="skills lang-block">
+            @for (s of skillList; track s.slug) {
+              <button
+                type="button"
+                class="chip skill"
+                [class.on]="isTrained(s.slug)"
+                [class.locked]="autoTrained().includes(s.slug)"
+                (click)="toggleSkill(s.slug)"
+              >
+                {{ s.name }}
+                <small class="muted">{{ s.ability }}</small>
+              </button>
+            }
+          </div>
+        </div>
+      }
+
+      @case ('languages') {
+        <div class="card">
+          <h3>Idiomas</h3>
+          <p class="muted">
+            Tu ancestría te da
+            <strong>{{ ancestryLanguages().length ? ancestryLanguages().join(', ') : 'ninguno' }}</strong>.
+            Podés elegir <strong>{{ languageSlots() }}</strong> más
+            <span class="hint">(modificador de Inteligencia, más los extra de tu ancestría)</span>.
+            Elegidos: {{ build().languages.length }}/{{ languageSlots() }}.
+          </p>
+
+          <div class="opts">
+            @for (lang of ancestryLanguages(); track lang) {
+              <span class="chip on locked">{{ languageLabel(lang) }}</span>
+            }
+            @for (lang of languageOptions(); track lang) {
+              <button class="chip" [class.on]="hasLanguage(lang)" (click)="toggleLanguage(lang)">
+                {{ languageLabel(lang) }}
+              </button>
+            }
+            @for (lang of customLanguages(); track lang) {
+              <button class="chip on" (click)="toggleLanguage(lang)" title="Idioma inventado — click para quitarlo">
+                {{ languageLabel(lang) }} ✕
+              </button>
+            }
+          </div>
+
+          <div class="custom-lang">
+            <label class="muted">¿Tu máster inventó un idioma?</label>
+            <input
+              type="text"
+              placeholder="Escribilo y apretá Enter"
+              (keydown.enter)="addCustomLanguage($any($event.target).value); $any($event.target).value = ''"
+            />
+          </div>
+        </div>
+      }
+
+      @case ('feats') {
+        <div class="feats">
+          @for (choice of featureChoices(); track choice.sourceId) {
+            <div class="feat-block">
+              <h3>{{ choice.label }}</h3>
+              <app-option-picker
+                [options]="featureOptions(choice.options)"
+                [selectedId]="chosenFeature(choice.sourceId)"
+                (selectedIdChange)="setFeatureChoice(choice.sourceId, $event)"
+              />
+            </div>
+          }
+
+          <div class="feat-block">
+            <h3>Dote de clase (nivel 1)</h3>
+            <app-option-picker
+              [options]="featOptions('class')"
+              [selectedId]="chosenFeat('classFeat')"
+              (selectedIdChange)="setFeat('classFeat', $event)"
+            />
+          </div>
+
+          <div class="feat-block">
+            <h3>Dote de ancestría (nivel 1)</h3>
+            <app-option-picker
+              [options]="featOptions('ancestry')"
+              [selectedId]="chosenFeat('ancestryFeat')"
+              (selectedIdChange)="setFeat('ancestryFeat', $event)"
+            />
+          </div>
+        </div>
+      }
+
+      @case ('spells') {
+        <div class="feats">
+          @if (!tradition()) {
+            <p class="muted">Elegí primero un linaje: define la tradición de tus conjuros.</p>
+          }
+
+          @if (preparesFromList()) {
+            <p class="muted">
+              Tu clase prepara conjuros de <strong>toda la lista {{ tradition() }}</strong> cada día, así que acá
+              solo elegís los cantrips. Los conjuros del día se preparan desde la hoja del personaje.
+            </p>
+          }
+          @for (group of spellGroups(); track group.key) {
+            <div class="feat-block">
+              <h3>
+                {{ group.label }}
+                <small class="muted">{{ chosenSpells(group.key).length }}/{{ group.limit }}</small>
+              </h3>
+
+              <div class="opts">
+                @for (id of chosenSpells(group.key); track id) {
+                  <button class="chip on" type="button" (click)="removeSpell(group.key, id)">
+                    {{ spellName(id) }} ✕
+                  </button>
+                } @empty {
+                  <span class="muted">Elegí {{ group.limit }} de la lista.</span>
+                }
+              </div>
+
+              @if (chosenSpells(group.key).length < group.limit) {
+                <app-option-picker
+                  [options]="spellOptions(group.rank)"
+                  [selectedId]="null"
+                  (selectedIdChange)="addSpell(group.key, group.limit, $event)"
+                />
+              }
+            </div>
+          }
+        </div>
+      }
+
+      @case ('gear') {
+        <div class="gear">
+          <p class="budget" [class.over]="remainingCp() < 0">
+            Arrancás con <strong>{{ formatCp(startingMoney) }}</strong> ·
+            gastado <strong>{{ formatCp(spentCp()) }}</strong> ·
+            @if (remainingCp() >= 0) {
+              te quedan <strong>{{ formatCp(remainingCp()) }}</strong>
+            } @else {
+              te pasaste por <strong>{{ formatCp(-remainingCp()) }}</strong>
+            }
+          </p>
+          <app-option-picker [options]="equipmentOptions()" [selectedId]="null" (selectedIdChange)="addGear($event)" />
+
+          <div class="card bag">
+            <h3>Mochila</h3>
+            @if (build().inventory.length === 0) {
+              <p class="muted">Todavía no agregaste nada. Al elegir un objeto de la lista se suma acá.</p>
+            }
+            @for (item of build().inventory; track item.id) {
+              <div class="bag-row">
+                <span>
+                  {{ gearName(item.id) }} @if (item.quantity > 1) { <small>×{{ item.quantity }}</small> }
+                  <small class="muted">{{ formatCp(gearPrice(item.id) * item.quantity) }}</small>
+                </span>
+                <button class="btn ghost danger" type="button" (click)="removeGear(item.id)">quitar</button>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      @case ('name') {
+        <div class="card namecard">
+          <h3>¿Cómo se llama?</h3>
+          <input
+            type="text"
+            placeholder="Nombre del personaje"
+            [value]="build().name"
+            (input)="updateName($any($event.target).value)"
+          />
+
+          <div class="detalles">
+            <label>
+              Edad <small class="muted">(opcional)</small>
+              <input type="text" [value]="build().age" (input)="updateDetail('age', $any($event.target).value)" />
+            </label>
+
+            <label>
+              Apariencia <small class="muted">(opcional)</small>
+              <textarea
+                rows="2"
+                [value]="build().appearance"
+                (input)="updateDetail('appearance', $any($event.target).value)"
+              ></textarea>
+            </label>
+
+            <label>
+              Notas <small class="muted">(historia, objetivos, lo que quieras)</small>
+              <textarea
+                rows="3"
+                [value]="build().notes"
+                (input)="updateDetail('notes', $any($event.target).value)"
+              ></textarea>
+            </label>
+          </div>
+
+          <div class="summary">
+            <p>
+              <strong>{{ build().name || 'Sin nombre' }}</strong> — {{ ancestry()?.name }} {{ pf2class()?.name }} de
+              nivel 1
+            </p>
+            <p class="muted">{{ background()?.name }}</p>
+          </div>
+        </div>
+      }
+    }
+  </section>
+
+  <div class="nav">
+    <button class="btn" type="button" (click)="back()" [disabled]="stepIndex() === 0">Atrás</button>
+
+    @if (stepIndex() < steps().length - 1) {
+      <button class="btn primary" type="button" (click)="next()" [disabled]="!canContinue()">Siguiente</button>
+    } @else {
+      <button class="btn primary" type="button" (click)="finish()" [disabled]="!canContinue() || saving()">
+        {{ saving() ? 'Guardando…' : 'Crear personaje' }}
+      </button>
+    }
+  </div>
+</div>

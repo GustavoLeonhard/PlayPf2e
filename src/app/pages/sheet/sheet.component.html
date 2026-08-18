@@ -1,0 +1,950 @@
+@if (sheet(); as s) {
+  <div class="container">
+    <header class="pjhead">
+      <div class="retrato">
+        @if (portrait(); as foto) {
+          <img class="portrait" [src]="foto" [alt]="s.name" />
+          <button class="portrait-clear" title="Quitar retrato" (click)="removePortrait()">×</button>
+        } @else {
+          <label class="portrait empty" title="Agregar retrato">
+            <span>+</span>
+            <input type="file" accept="image/*" hidden #fotoInput (change)="setPortrait(fotoInput)" />
+          </label>
+        }
+      </div>
+
+      <div class="pjhead-datos">
+        <h1>{{ s.name }}</h1>
+        <p class="muted">
+          {{ s.ancestryName }} {{ s.heritageName !== '—' ? '(' + s.heritageName + ')' : '' }} · {{ s.className }} ·
+          Nivel {{ s.level }} · {{ s.backgroundName }}
+          @if (s.alignment) {
+            · {{ s.alignment }}
+          }
+          @if (s.deity; as d) {
+            · devoto de <strong>{{ d.name }}</strong>
+          }
+        </p>
+        @if (s.deity; as d) {
+          <p class="muted deity-line">
+            @if (d.favoredWeapons.length) {
+              Arma favorita: {{ d.favoredWeapons.join(', ') }} ·
+            }
+            @if (d.divineFont.length) {
+              Divine font: {{ d.divineFont.join('/') }} ·
+            }
+            Dominios: {{ d.domains.join(', ') }}
+          </p>
+        }
+      </div>
+
+      <div class="head-actions">
+        <a class="btn" [routerLink]="['/characters', id(), 'level-up']">Subir de nivel</a>
+        <a class="btn ghost" routerLink="/characters">Volver</a>
+      </div>
+    </header>
+
+    <!-- Items a revisar: solo aparece si queda algo sin resolver, y se puede plegar -->
+    @if (openWarnings().length) {
+      <div class="card warnings">
+        <button class="w-toggle" (click)="showWarnings.set(!showWarnings())">
+          <strong>Items a revisar ({{ openWarnings().length }})</strong>
+          {{ showWarnings() ? '▾' : '▸' }}
+        </button>
+        @if (showWarnings()) {
+          <ul>
+            @for (w of openWarnings(); track w.id) {
+              <li>
+                <span class="w-tag" [class.unknown]="w.status === 'unknown'">
+                  {{ w.status === 'unknown' ? 'sin verificar' : 'no se cumple' }}
+                </span>
+                {{ w.text }}
+                <button class="w-ok" (click)="acknowledge(w.id)">marcar como resuelto</button>
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    }
+
+    @if (acknowledgedWarnings().length) {
+      <div class="card warnings muted-block">
+        <button class="w-toggle" (click)="showAcknowledged.set(!showAcknowledged())">
+          {{ acknowledgedWarnings().length }} advertencia(s) marcadas como resueltas
+          {{ showAcknowledged() ? '▾' : '▸' }}
+        </button>
+        @if (showAcknowledged()) {
+          <ul>
+            @for (w of acknowledgedWarnings(); track w.id) {
+              <li class="done-warning">
+                {{ w.text }}
+                <button class="w-ok" (click)="unacknowledge(w.id)">reactivar</button>
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    }
+
+    <!-- Fila 1: lo que describe al personaje en la mesa -->
+    <section class="fila info">
+      <div class="card mini">
+        <span class="label muted">Velocidad</span>
+        <span class="value static">{{ s.speed.total }}<small> ft</small></span>
+      </div>
+
+      <div class="card mini">
+        <span class="label muted">Visión</span>
+        <span class="value static vision">
+          {{ s.vision === 'darkvision' ? 'Darkvision' : s.vision === 'low-light-vision' ? 'Low-light' : 'Normal' }}
+        </span>
+      </div>
+
+      <div class="card mini idiomas">
+        <span class="label muted">Idiomas</span>
+        <p class="langs">
+          @for (lang of s.languages.fromAncestry; track lang) {
+            <span class="tag">{{ languageLabel(lang) }}</span>
+          }
+          @for (lang of s.languages.chosen; track lang) {
+            <span class="tag chosen-lang">{{ languageLabel(lang) }}</span>
+          }
+          @if (!s.languages.fromAncestry.length && !s.languages.chosen.length) {
+            <span class="muted">Ninguno.</span>
+          }
+        </p>
+      </div>
+
+      <div class="card mini cond">
+        <span class="label muted">Condiciones</span>
+        <button class="btn" (click)="showConditions.set(!showConditions())">
+          {{ record()?.state?.conditions?.length ?? 0 }} activa(s) {{ showConditions() ? '▾' : '▸' }}
+        </button>
+        @for (c of record()?.state?.conditions ?? []; track c.id) {
+          <span class="tag active-cond">{{ c.id }} {{ c.value ?? '' }}</span>
+        }
+      </div>
+
+      <div class="card mini hero">
+        <span class="label muted">Hero points</span>
+        <div class="hp-controls">
+          @for (n of [1, 2, 3]; track n) {
+            <button
+              class="pip"
+              [class.on]="(record()?.state?.heroPoints ?? 0) >= n"
+              (click)="setHeroPoints((record()?.state?.heroPoints ?? 0) === n ? n - 1 : n)"
+            >
+              ●
+            </button>
+          }
+        </div>
+      </div>
+    </section>
+
+    @if (showConditions()) {
+      <section class="card conditions">
+        @for (c of conditionList(); track c.id) {
+          <div class="cond-row" [class.on]="hasCondition(c.id)">
+            <button class="cond-name" (click)="toggleCondition(c.id, isValued(c.id))">
+              <span class="cond-title">
+                {{ c.name }}
+                @if (!hasEffect(c.id)) {
+                  <span class="tag no-effect" title="La hoja no cambia ningún número por esta condición">
+                    solo texto
+                  </span>
+                }
+              </span>
+              <small class="muted">{{ c.text }}</small>
+            </button>
+            @if (hasCondition(c.id) && isValued(c.id)) {
+              <div class="valuectl">
+                <button class="btn" (click)="changeConditionValue(c.id, -1)">−</button>
+                <span>{{ conditionValue(c.id) }}</span>
+                <button class="btn" (click)="changeConditionValue(c.id, 1)">+</button>
+              </div>
+            }
+          </div>
+        }
+      </section>
+    }
+
+    <!-- Fila 2: defensas — cuánto aguantás y cuánto te cuesta pegarte -->
+    <section class="fila defensas">
+      <div class="card stat-big hp">
+        <span class="label muted">Puntos de vida</span>
+        <div class="hp-controls">
+          <button class="btn" (click)="adjustHp(-5)">-5</button>
+          <button class="btn" (click)="adjustHp(-1)">-1</button>
+          <span class="hp-value">
+            {{ record()?.state?.hp?.current ?? 0 }} <small class="muted">/ {{ s.maxHp.total }}</small>
+          </span>
+          <button class="btn" (click)="adjustHp(1)">+1</button>
+          <button class="btn" (click)="adjustHp(5)">+5</button>
+        </div>
+      </div>
+
+      <div class="card stat-big">
+        <span class="label muted">Clase de armadura</span>
+        <button class="value" (click)="toggleBreakdown('ac')">{{ s.ac.total }}</button>
+        @if (openBreakdown() === 'ac') {
+          <div class="breakdown">
+            @for (m of s.ac.breakdown; track $index) {
+              <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+            }
+            @for (m of s.ac.suppressed; track $index) {
+              <div class="off"><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+            }
+          </div>
+        }
+      </div>
+
+      @if (s.shield; as escudo) {
+        <div class="card stat-big escudo" [class.raised]="escudo.raised">
+          <span class="label muted">
+            {{ escudo.name }}
+            @if (escudo.broken) {
+              <span class="tag roto">roto</span>
+            }
+          </span>
+          <button class="value" [disabled]="escudo.broken" (click)="toggleShield()">
+            {{ signed(escudo.acBonus) }}
+          </button>
+          <span class="muted small">
+            {{ escudo.raised ? 'alzado' : 'bajo' }} · hardness {{ escudo.hardness }} ·
+            HP {{ escudo.currentHp }}/{{ escudo.maxHp }} (se rompe en {{ escudo.brokenThreshold }})
+          </span>
+          <div class="shield-block">
+            <input #dmg type="number" min="1" placeholder="daño" />
+            <button class="rank-btn" [disabled]="escudo.broken" (click)="shieldBlock(+dmg.value); dmg.value = ''">
+              Shield Block
+            </button>
+            <button class="rank-btn" (click)="repairShield()">reparar</button>
+          </div>
+          @if (lastBlock(); as bloque) {
+            <p class="block-result">
+              Te pegaban {{ bloque.incoming }}: el escudo absorbió <strong>{{ bloque.absorbed }}</strong>,
+              y el resto ({{ bloque.toYou }}) se lo llevaron los dos.
+            </p>
+          }
+        </div>
+      }
+
+      @for (save of [{ k: 'fortitude', n: 'Fortaleza' }, { k: 'reflex', n: 'Reflejos' }, { k: 'will', n: 'Voluntad' }]; track save.k) {
+        <div class="card stat-big">
+          <span class="label muted">{{ save.n }}</span>
+          <button class="value" (click)="roll(save.n, $any(s.saves)[save.k])">
+            {{ signed($any(s.saves)[save.k].total) }}
+          </button>
+          <button class="why muted" (click)="toggleBreakdown(save.k)">¿por qué?</button>
+          @if (openBreakdown() === save.k) {
+            <div class="breakdown">
+              @for (m of $any(s.saves)[save.k].breakdown; track $index) {
+                <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+              }
+            </div>
+          }
+        </div>
+      }
+
+      <div class="card stat-big">
+        <span class="label muted">CD de clase</span>
+        <span class="value static">{{ s.classDC.total }}</span>
+      </div>
+    </section>
+
+    <!-- Fila 3: las dos tiradas de todos los turnos, y después los atributos -->
+    <section class="fila tiradas">
+      <div class="card stat-big destacado">
+        <span class="label muted">Percepción</span>
+        <button class="value" (click)="roll('Percepción', s.perception)">{{ signed(s.perception.total) }}</button>
+        <button class="why muted" (click)="toggleBreakdown('perception')">¿por qué?</button>
+        @if (openBreakdown() === 'perception') {
+          <div class="breakdown">
+            @for (m of s.perception.breakdown; track $index) {
+              <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="card stat-big destacado initiative">
+        <span class="label muted">Iniciativa</span>
+        @if (initiativeOption(); as ini) {
+          <button class="value" (click)="rollInitiative()">{{ signed(ini.stat.total) }}</button>
+        }
+        <select class="ini-select" [value]="initiativeKey()" (change)="initiativeKey.set($any($event.target).value)">
+          @for (opcion of s.initiative.options; track opcion.key) {
+            <option [value]="opcion.key">{{ opcion.label }}</option>
+          }
+        </select>
+        @if (s.initiative.conditional.length) {
+          <p class="ini-cond muted">
+            @for (bono of s.initiative.conditional; track bono.source) {
+              {{ bono.source }} {{ signed(bono.value) }} si {{ bono.predicate.join(', ') }} ·
+            }
+          </p>
+        }
+      </div>
+
+      <div class="separador"></div>
+
+      @for (ab of abilityList; track ab) {
+        <div class="card stat-big">
+          <span class="label muted">{{ abilityNames[ab] }}</span>
+          <button class="value" (click)="roll(abilityNames[ab], s.abilityChecks[ab])">
+            {{ signed(s.abilityMods[ab]) }}
+          </button>
+          <span class="score muted">{{ s.abilityScores[ab] }}</span>
+          <button class="why muted" (click)="toggleBreakdown('ab-' + ab)">¿por qué?</button>
+          @if (openBreakdown() === 'ab-' + ab) {
+            <div class="breakdown">
+              @for (m of s.abilityChecks[ab].breakdown; track $index) {
+                <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+              }
+            </div>
+          }
+        </div>
+      }
+    </section>
+
+    <section class="cols">
+      <div class="card">
+        <h2>Rasgos y dotes</h2>
+        @for (grupo of featGroups(); track grupo.label) {
+          <div class="feat-group">
+            <h3 class="muted">{{ grupo.label }}</h3>
+            @for (f of grupo.items; track f.name + f.level) {
+              <div class="feat-row">
+                <span [class.accent]="f.esDote">{{ f.name }}</span>
+                <span class="muted">nv {{ f.level }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="card">
+        <h2>Habilidades</h2>
+        @for (sk of s.skills; track sk.slug) {
+          <div class="skill-row" [class.untrained]="sk.rank === 0">
+            <button
+              class="star"
+              [class.on]="isFavorite('skill', sk.slug)"
+              title="Favorito"
+              (click)="toggleFavorite('skill', sk.slug, sk.name)"
+            >
+              ★
+            </button>
+            <button class="skill-name" (click)="roll(sk.name, sk.stat)">{{ sk.name }}</button>
+            <span class="rank muted">{{ proficiencyNames[sk.rank] }}</span>
+            <button class="skill-mod" (click)="toggleBreakdown('sk-' + sk.slug)">{{ signed(sk.stat.total) }}</button>
+          </div>
+          @if (openBreakdown() === 'sk-' + sk.slug) {
+            <div class="breakdown inline">
+              @for (m of sk.stat.breakdown; track $index) {
+                <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+              }
+            </div>
+          }
+        }
+
+        @for (lo of s.lores; track lo.slug) {
+          <div class="skill-row">
+            <button
+              class="star"
+              [class.on]="isFavorite('skill', lo.slug)"
+              title="Favorito"
+              (click)="toggleFavorite('skill', lo.slug, lo.name)"
+            >
+              ★
+            </button>
+            <button class="skill-name" (click)="roll(lo.name, lo.stat)">{{ lo.name }}</button>
+            <span class="rank muted">{{ proficiencyNames[lo.rank] }}</span>
+            <button class="skill-mod" (click)="toggleBreakdown(lo.slug)">{{ signed(lo.stat.total) }}</button>
+          </div>
+          @if (openBreakdown() === lo.slug) {
+            <div class="breakdown inline">
+              @for (m of lo.stat.breakdown; track $index) {
+                <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+              }
+            </div>
+          }
+        }
+      </div>
+
+      <!-- Favoritos: lo que usás todos los turnos, sin buscarlo en la lista -->
+      <div class="card favoritos">
+        <h2>Favoritos</h2>
+        @for (fav of favorites(); track fav.fav.kind + fav.fav.ref) {
+          <div class="skill-row">
+            <button class="skill-name" (click)="rollFavorite(fav)">{{ fav.label }}</button>
+            <span class="muted">{{ fav.detail }}</span>
+            <button class="rank-btn" (click)="toggleFavorite(fav.fav.kind, fav.fav.ref, fav.label)">quitar</button>
+          </div>
+        } @empty {
+          <p class="muted small">
+            Marcá con ★ un ataque, una habilidad o un conjuro y va a aparecer acá.
+          </p>
+        }
+      </div>
+
+      <div class="card">
+        <h2>Cuerpo a cuerpo</h2>
+        @for (st of meleeStrikes(); track st.name + st.inventoryIndex) {
+          <ng-container [ngTemplateOutlet]="strikeTpl" [ngTemplateOutletContext]="{ $implicit: st }" />
+        } @empty {
+          <p class="muted small">Nada equipado.</p>
+        }
+      </div>
+
+      <div class="card">
+        <h2>A distancia</h2>
+        @for (st of rangedStrikes(); track st.name + st.inventoryIndex) {
+          <ng-container [ngTemplateOutlet]="strikeTpl" [ngTemplateOutletContext]="{ $implicit: st }" />
+        } @empty {
+          <p class="muted small">No tenés armas a distancia equipadas.</p>
+        }
+      </div>
+
+      @if (s.spellcasting; as sc) {
+        <div class="card spells">
+          <h2>Conjuros <small class="muted">{{ sc.tradition }}</small></h2>
+
+          <div class="spell-stats">
+            <button class="spell-stat" (click)="roll('Ataque de conjuro', sc.attack)">
+              <span class="muted">Ataque</span>
+              <strong>{{ signed(sc.attack.total) }}</strong>
+            </button>
+            <div class="spell-stat">
+              <span class="muted">CD</span>
+              <strong>{{ sc.dc.total }}</strong>
+            </div>
+          </div>
+
+          @if (isPrepared()) {
+            <div class="prep-head">
+              <button class="btn" (click)="preparing.set(!preparing())">
+                {{ preparing() ? 'Listo' : 'Preparar conjuros' }}
+              </button>
+              <button class="btn ghost" (click)="restForTheDay()" title="Vacía lo preparado y recupera los slots">
+                Descanso diario
+              </button>
+            </div>
+
+            @if (sc.arcaneSchool) {
+              <p class="muted small">
+                Escuela: <strong>{{ sc.arcaneSchool }}</strong> — te da un slot extra por rango,
+                solo para conjuros de tu escuela.
+              </p>
+            }
+
+            @if (fontSlots(); as font) {
+              <div class="spell-group">
+                <div class="spell-head">
+                  <strong>Divine font <small class="muted">rango {{ font.rank }}</small></strong>
+                </div>
+                @for (slot of font.slots; track slot.index) {
+                  <div class="spell-row">
+                    @if (slot.spell; as spell) {
+                      <button class="spell-name" (click)="castSpell(spell, font.rank)">{{ spell.name }}</button>
+                      @if (preparing()) {
+                        <button class="rank-btn" (click)="prepareFontSpell(slot.index, null)">vaciar</button>
+                      }
+                    } @else {
+                      <span class="spell-name empty">— slot de heal/harm —</span>
+                      <select class="font-select" (change)="prepareFontSpell(slot.index, $any($event.target).value)">
+                        <option value="">elegir…</option>
+                        @for (spell of fontSpells(); track spell.id) {
+                          <option [value]="spell.id">{{ spell.name }}</option>
+                        }
+                      </select>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            @for (group of preparedSlots(); track group.rank) {
+              <div class="spell-group">
+                <div class="spell-head">
+                  <strong>Rango {{ group.rank }}</strong>
+                  <span class="slots">
+                    <button class="btn" (click)="useSlot(group.rank, 1)">gastar</button>
+                    {{ group.slots.length - slotsUsed(group.rank) }}/{{ group.slots.length }}
+                    <button class="btn" (click)="useSlot(group.rank, -1)">↺</button>
+                  </span>
+                </div>
+
+                @for (slot of group.slots; track slot.index) {
+                  <div class="spell-row">
+                    @if (slot.spell; as spell) {
+                      <button class="spell-name" (click)="castSpell(spell, group.rank)">{{ spell.name }}</button>
+                      <span class="muted spell-meta">
+                        @if (spell.defense) {
+                          {{ spell.basicSave ? 'basic ' : '' }}{{ spell.defense }}
+                        }
+                        @if (spell.traits.includes('attack')) { ataque }
+                      </span>
+                      @if (preparing()) {
+                        <button class="rank-btn" (click)="prepareSpell(group.rank, slot.index, null)">vaciar</button>
+                      }
+                    } @else {
+                      <button class="spell-name empty" (click)="fillingSlot.set({ rank: group.rank, index: slot.index })">
+                        — slot vacío —
+                      </button>
+                    }
+                  </div>
+
+                  @if (fillingSlot()?.rank === group.rank && fillingSlot()?.index === slot.index) {
+                    <div class="prep-picker">
+                      <select (change)="prepareSpell(group.rank, slot.index, $any($event.target).value)">
+                        <option value="">Elegí un conjuro…</option>
+                        @for (spell of preparableSpells(group.rank); track spell.id) {
+                          <option [value]="spell.id">{{ spell.name }}</option>
+                        }
+                      </select>
+                    </div>
+                  }
+                }
+              </div>
+            }
+          }
+
+          @for (group of spellGroups(); track group.label) {
+            <div class="spell-group">
+              <div class="spell-head">
+                <strong>{{ group.label }}</strong>
+                @if (group.slots) {
+                  <span class="slots">
+                    <button class="btn" (click)="useSlot(group.rank, 1)">gastar</button>
+                    {{ group.slots - slotsUsed(group.rank) }}/{{ group.slots }}
+                    <button class="btn" (click)="useSlot(group.rank, -1)">↺</button>
+                  </span>
+                }
+              </div>
+
+              @for (spell of group.spells; track spell.id) {
+                <div class="spell-row">
+                  <button
+                    class="star fav"
+                    [class.on]="isFavorite('spell', spell.id)"
+                    title="Favorito"
+                    (click)="toggleFavorite('spell', spell.id, spell.name)"
+                  >
+                    ★
+                  </button>
+
+                  @if (sc.signatureSpells && group.rank > 0 && !spell.traits.includes('cantrip')) {
+                    <button
+                      class="star"
+                      [class.on]="isSignature(spell)"
+                      [title]="isSignature(spell) ? 'Signature: se puede heightear' : 'Marcar como signature'"
+                      (click)="toggleSignature(spell)"
+                    >
+                      ✦
+                    </button>
+                  }
+
+                  <button class="spell-name" (click)="castSpell(spell, group.rank)">{{ spell.name }}</button>
+
+                  <span class="muted spell-meta">
+                    @if (spell.defense) {
+                      {{ spell.basicSave ? 'basic ' : '' }}{{ spell.defense }}
+                    }
+                    @if (spell.traits.includes('attack')) { ataque }
+                  </span>
+
+                  @if (ranksFor(spell).length > 1) {
+                    <span class="rank-picker">
+                      @for (r of ranksFor(spell); track r) {
+                        <button class="rank-btn" [title]="'Lanzar a rango ' + r" (click)="castSpell(spell, r)">
+                          {{ r }}
+                        </button>
+                      }
+                    </span>
+                  }
+                </div>
+              } @empty {
+                <p class="muted small">Sin hechizos elegidos.</p>
+              }
+            </div>
+          }
+        </div>
+      }
+
+      @if (s.focus || focusOptions().length) {
+        <div class="card spells">
+          <h2>
+            Focus spells
+            @if (s.focus; as focus) {
+              <small class="muted">rango {{ focus.rank }}</small>
+            }
+          </h2>
+
+          @if (s.focus; as focus) {
+            <div class="focus-head">
+              <span class="label muted">Focus points</span>
+              <span class="focus-pips">
+                @for (n of [1, 2, 3].slice(0, focus.pool); track n) {
+                  <span class="pip" [class.on]="(record()?.state?.focusPoints ?? 0) >= n">●</span>
+                }
+              </span>
+              <button class="btn" (click)="refocus()" title="10 minutos: recuperás 1 punto">Refocus</button>
+            </div>
+
+            <div class="spell-stats">
+              <button class="spell-stat" (click)="roll('Ataque de conjuro', focus.attack)">
+                <span class="muted">Ataque</span>
+                <strong>{{ signed(focus.attack.total) }}</strong>
+              </button>
+              <div class="spell-stat">
+                <span class="muted">CD</span>
+                <strong>{{ focus.dc.total }}</strong>
+              </div>
+            </div>
+          }
+
+          @for (spell of focusSpells(); track spell.id) {
+            <div class="spell-row">
+              <button
+                class="star fav"
+                [class.on]="isFavorite('spell', spell.id)"
+                title="Favorito"
+                (click)="toggleFavorite('spell', spell.id, spell.name)"
+              >
+                ★
+              </button>
+              <button
+                class="spell-name"
+                [disabled]="(record()?.state?.focusPoints ?? 0) <= 0"
+                (click)="castFocusSpell(spell)"
+              >
+                {{ spell.name }}
+              </button>
+              <span class="muted spell-meta">
+                @if (spell.defense) {
+                  {{ spell.basicSave ? 'basic ' : '' }}{{ spell.defense }}
+                }
+                @if (spell.traits.includes('attack')) { ataque }
+              </span>
+              <button class="rank-btn" (click)="removeFocusSpell(spell.id)">quitar</button>
+            </div>
+          } @empty {
+            <p class="muted small">Todavía no agregaste ninguno.</p>
+          }
+
+          <button class="btn ghost" (click)="addingFocus.set(!addingFocus())">
+            {{ addingFocus() ? 'Cancelar' : '+ Agregar focus spell' }}
+          </button>
+
+          @if (addingFocus()) {
+            <select class="prep-picker" (change)="addFocusSpell($any($event.target).value)">
+              <option value="">Elegí uno…</option>
+              @for (spell of focusOptions(); track spell.id) {
+                <option [value]="spell.id">
+                  {{ isSuggested(spell) ? '★ ' : '' }}{{ spell.name }} (rango {{ spell.level }})
+                </option>
+              }
+            </select>
+          }
+        </div>
+      }
+
+      <div class="card">
+        <h2>Bolsa</h2>
+        <div class="coins">
+          <span class="coin-total">{{ formatCp(record()?.state?.coins ?? 0) }}</span>
+          <span class="coin-buttons">
+            <button class="btn" (click)="adjustCoins(-100)">−1 gp</button>
+            <button class="btn" (click)="adjustCoins(-10)">−1 sp</button>
+            <button class="btn" (click)="adjustCoins(10)">+1 sp</button>
+            <button class="btn" (click)="adjustCoins(100)">+1 gp</button>
+          </span>
+        </div>
+
+        @if (s.appearance || s.age || record()?.build?.notes) {
+          <div class="detalles-pj">
+            @if (s.age) {
+              <p><strong>Edad:</strong> {{ s.age }}</p>
+            }
+            @if (s.appearance) {
+              <p>{{ s.appearance }}</p>
+            }
+            @if (record()?.build?.notes; as notas) {
+              <p class="muted">{{ notas }}</p>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="card">
+        <h2>
+          Inventario
+          <small class="muted" [class.over]="s.bulk.encumbered">
+            {{ s.bulk.carried }} / {{ s.bulk.encumberedAt }} bulk
+            @if (s.bulk.encumbered) { — encumbered }
+          </small>
+        </h2>
+
+        @for (fila of inventory(); track fila.index) {
+          <div class="inv-row" [class.equipped]="fila.item.equipped">
+            <span class="inv-name">
+              {{ fila.name }}
+              @if (fila.item.quantity > 1) {
+                <small>×{{ fila.item.quantity }}</small>
+              }
+              @if (fila.inventado) {
+                <span class="tag custom-tag">inventado</span>
+              }
+            </span>
+
+            <span class="inv-actions">
+              @if (fila.equipable) {
+                <button class="rank-btn" (click)="toggleEquipped(fila.index)">
+                  {{ fila.item.equipped ? 'guardar' : 'equipar' }}
+                </button>
+              }
+              <button class="rank-btn" (click)="changeQuantity(fila.index, 1)">+</button>
+              <button class="rank-btn" (click)="changeQuantity(fila.index, -1)">−</button>
+              @if (fila.priceCp) {
+                <button class="rank-btn" (click)="sellItem(fila.index)" title="Se vende a mitad de precio">
+                  vender {{ formatCp(fila.priceCp / 2) }}
+                </button>
+              }
+            </span>
+
+            @if (fila.notes) {
+              <p class="weapon-notes">{{ fila.notes }}</p>
+            }
+          </div>
+        } @empty {
+          <p class="muted small">La mochila está vacía.</p>
+        }
+
+        <button class="btn ghost" (click)="addingItem.set(!addingItem())">
+          {{ addingItem() ? 'Cancelar' : '+ Agregar objeto' }}
+        </button>
+
+        @if (addingItem()) {
+          <div class="add-item">
+            <label>
+              Buscar en el catálogo
+              <input
+                type="search"
+                placeholder="cuerda, poción, espada…"
+                [value]="itemSearch()"
+                (input)="itemSearch.set($any($event.target).value)"
+              />
+            </label>
+
+            @for (item of searchResults(); track item.id) {
+              <div class="inv-row">
+                <span class="inv-name">
+                  {{ item.name }}
+                  <small class="muted">{{ formatCp(priceOf(item)) }}</small>
+                </span>
+                <span class="inv-actions">
+                  <button
+                    class="rank-btn"
+                    [disabled]="!canAfford(item)"
+                    [title]="canAfford(item) ? 'Descuenta de tu bolsa' : 'No te alcanza la plata'"
+                    (click)="addItem(item.id, true)"
+                  >
+                    comprar
+                  </button>
+                  <button class="rank-btn" title="Sin pagar: un botín, un regalo…" (click)="addItem(item.id, false)">
+                    agregar
+                  </button>
+                </span>
+              </div>
+            }
+
+            <div class="invented">
+              <p class="muted small">
+                ¿Es algo que no está en el catálogo? La cuerda élfica que te dio tu máster, por ejemplo.
+              </p>
+              <input #nombreItem type="text" placeholder="Nombre del objeto" />
+              <input #bulkItem type="number" step="0.1" placeholder="Bulk (0.1 si es liviano)" />
+              <input #notasItem type="text" placeholder="Notas: qué hace" />
+              <button
+                class="btn"
+                (click)="addInventedItem(nombreItem.value, bulkItem.value, notasItem.value); nombreItem.value = ''; bulkItem.value = ''; notasItem.value = ''"
+              >
+                Agregar objeto inventado
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    </section>
+  </div>
+
+  <!--
+    Un ataque se muestra igual sea melee o ranged, y se edita igual: una sola
+    plantilla para las dos secciones.
+  -->
+  <ng-template #strikeTpl let-st>
+    <div class="strike">
+      <button
+        class="star fav"
+        [class.on]="isFavorite('strike', st.name)"
+        title="Favorito"
+        (click)="toggleFavorite('strike', st.name, st.name)"
+      >
+        ★
+      </button>
+      <button class="skill-name" (click)="rollStrike(st)">
+        {{ st.name }}
+        @if (st.custom) {
+          <span class="tag custom-tag">custom</span>
+        }
+        @if (st.unarmed) {
+          <span class="tag">desarmado</span>
+        }
+      </button>
+      <span class="mod">{{ signed(st.attack.total) }}</span>
+      <span class="muted dmg">
+        {{ st.damageDice }}{{ st.damage.total !== 0 ? signed(st.damage.total) : '' }} {{ st.damageType }}
+        @if (st.fatal) {
+          <em class="crit-trait" title="En un crítico los dados pasan a este tamaño y se suma uno extra">
+            · fatal {{ st.fatal }}
+          </em>
+        }
+        @if (st.deadly) {
+          <em class="crit-trait" title="En un crítico se suma un dado de este tamaño">· deadly {{ st.deadly }}</em>
+        }
+        <em class="rank">· {{ proficiencyNames[st.proficiency] }}</em>
+        @if (st.inventoryIndex >= 0) {
+          <button
+            class="w-ok"
+            (click)="editingWeapon.set(editingWeapon() === st.inventoryIndex ? null : st.inventoryIndex)"
+          >
+            personalizar
+          </button>
+        }
+      </span>
+
+      @if (st.notes) {
+        <p class="weapon-notes">{{ st.notes }}</p>
+      }
+
+      @if (st.inventoryIndex >= 0 && editingWeapon() === st.inventoryIndex) {
+        <div class="weapon-editor">
+          <label>
+            Nombre
+            <input
+              type="text"
+              [value]="customOf(st.inventoryIndex).name ?? ''"
+              (change)="saveCustomItem(st.inventoryIndex, { name: $any($event.target).value })"
+            />
+          </label>
+
+          <div class="editor-row">
+            <label>
+              Dados
+              <input
+                type="number"
+                min="1"
+                [value]="customOf(st.inventoryIndex).damageDice ?? ''"
+                (change)="saveCustomItem(st.inventoryIndex, { damageDice: numero($any($event.target).value) })"
+              />
+            </label>
+            <label>
+              Dado
+              <input
+                type="text"
+                placeholder="d8"
+                [value]="customOf(st.inventoryIndex).damageDie ?? ''"
+                (change)="saveCustomItem(st.inventoryIndex, { damageDie: $any($event.target).value })"
+              />
+            </label>
+            <label>
+              Tipo
+              <input
+                type="text"
+                placeholder="fire"
+                [value]="customOf(st.inventoryIndex).damageType ?? ''"
+                (change)="saveCustomItem(st.inventoryIndex, { damageType: $any($event.target).value })"
+              />
+            </label>
+          </div>
+
+          <div class="editor-row">
+            <label>
+              Bonus ataque
+              <input
+                type="number"
+                [value]="customOf(st.inventoryIndex).bonusAttack ?? ''"
+                (change)="saveCustomItem(st.inventoryIndex, { bonusAttack: numero($any($event.target).value) })"
+              />
+            </label>
+            <label>
+              Bonus daño
+              <input
+                type="number"
+                [value]="customOf(st.inventoryIndex).bonusDamage ?? ''"
+                (change)="saveCustomItem(st.inventoryIndex, { bonusDamage: numero($any($event.target).value) })"
+              />
+            </label>
+            <label>
+              Traits
+              <input
+                type="text"
+                placeholder="reach, finesse"
+                [value]="traitsText(st.inventoryIndex)"
+                (change)="saveTraits(st.inventoryIndex, $any($event.target).value)"
+              />
+            </label>
+          </div>
+
+          <label>
+            Notas <small class="muted">(lo que la app no puede calcular)</small>
+            <textarea
+              rows="2"
+              [value]="customOf(st.inventoryIndex).notes ?? ''"
+              (change)="saveCustomItem(st.inventoryIndex, { notes: $any($event.target).value })"
+            ></textarea>
+          </label>
+
+          <div class="editor-actions">
+            <button class="btn" (click)="editingWeapon.set(null)">Listo</button>
+            <button class="btn ghost danger" (click)="clearCustomItem(st.inventoryIndex)">
+              Volver al arma original
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  </ng-template>
+
+  @if (lastRoll(); as r) {
+    <div class="roll-toast" [class.crit]="r.crit === 'success'" [class.fumble]="r.crit === 'failure'">
+      <button class="close" (click)="lastRoll.set(null)">×</button>
+      <span class="r-label">{{ r.label }}</span>
+
+      @if (r.die) {
+        <span class="r-total">{{ r.total }}</span>
+        <span class="r-detail muted">d20 ({{ r.die }}) {{ signed(r.modifier) }}</span>
+      } @else if (r.dc) {
+        <span class="r-total">CD {{ r.dc }}</span>
+        <span class="r-detail muted">salvación de {{ r.save }}</span>
+      }
+
+      @if (r.damage; as dmg) {
+        <span class="r-damage">
+          {{ dmg.total }} de daño{{ dmg.type ? ' ' + dmg.type : '' }}
+          <small class="muted">({{ dmg.detail }})</small>
+        </span>
+        <span class="r-crit-damage muted">crítico: {{ dmg.critical }}</span>
+      }
+      @if (r.crit === 'success') {
+        <span class="r-crit">¡20 natural!</span>
+      }
+      @if (r.crit === 'failure') {
+        <span class="r-crit">1 natural…</span>
+      }
+    </div>
+  }
+} @else {
+  <div class="container"><p class="muted">Cargando personaje…</p></div>
+}

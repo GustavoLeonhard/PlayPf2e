@@ -1,0 +1,130 @@
+@if (record(); as pj) {
+  <div class="container">
+    <header class="head">
+      <div>
+        <h1>Subir de nivel</h1>
+        <p class="muted">
+          {{ pj.build.name }} — {{ pf2class()?.name }} de nivel {{ currentLevel() }}
+          <span class="arrow">→</span>
+          <strong class="accent">nivel {{ nextLevel() }}</strong>
+        </p>
+      </div>
+      <a class="btn ghost" [routerLink]="['/characters', id()]">Volver a la hoja</a>
+    </header>
+
+    @if (atMax()) {
+      <div class="card"><p>Este personaje ya está en el nivel 20, el máximo de Pathfinder 2e.</p></div>
+    } @else {
+      @if (newFeatures().length) {
+        <section class="card auto">
+          <h2>Ganás automáticamente</h2>
+          @for (f of newFeatures(); track f.name) {
+            <div class="auto-row">✦ {{ f.name }}</div>
+          }
+        </section>
+      }
+
+      @for (choice of featureChoices(); track choice.sourceId) {
+        <section class="card slot">
+          <h2>
+            {{ choice.label }}
+            @if (pickedByKey(featureKey(choice.sourceId))) {
+              <span class="done">✓</span>
+            }
+          </h2>
+          <app-option-picker
+            [options]="featureOptions(choice.options)"
+            [selectedId]="pickedByKey(featureKey(choice.sourceId))"
+            (selectedIdChange)="pickByKey(featureKey(choice.sourceId), $event)"
+          />
+        </section>
+      }
+
+      @for (group of newSpellGroups(); track group.key) {
+        <section class="card slot">
+          <h2>
+            Hechizos nuevos — {{ group.label }}
+            <small class="muted">{{ chosenNew(group.key).length }}/{{ group.limit }}</small>
+            @if (chosenNew(group.key).length === group.limit) {
+              <span class="done">✓</span>
+            }
+          </h2>
+
+          <div class="opts">
+            @for (id of chosenNew(group.key); track id) {
+              <button class="chip on" (click)="removeSpell(group.key, id)">{{ spellName(id) }} ✕</button>
+            }
+          </div>
+
+          @if (chosenNew(group.key).length < group.limit) {
+            <app-option-picker
+              [options]="spellOptions(group.rank)"
+              [selectedId]="null"
+              (selectedIdChange)="addSpell(group.key, group.limit, $event)"
+            />
+          }
+        </section>
+      }
+
+      @if (needsBoosts()) {
+        <section class="card">
+          <h2>4 boosts de atributo</h2>
+          <p class="muted">Elegidos {{ boostPicks().length }}/4 — cada uno sube +2, o +1 si ya llegaste a 18.</p>
+          <div class="opts">
+            @for (ab of abilityList; track ab) {
+              <button class="chip" [class.on]="boostPicks().includes(ab)" (click)="toggleBoost(ab)">
+                {{ abilityNames[ab] }}
+              </button>
+            }
+          </div>
+        </section>
+      }
+
+      @if (slots().length === 0 && !needsBoosts()) {
+        <div class="card"><p class="muted">En este nivel no tenés elecciones que hacer.</p></div>
+      }
+
+      @for (slot of slots(); track slotKey(slot)) {
+        <section class="card slot">
+          <h2>
+            {{ slot.label }}
+            @if (picked(slot)) {
+              <span class="done">✓</span>
+            }
+          </h2>
+
+          @if (slot.slot === 'skillIncrease') {
+            <p class="muted">Subí una habilidad un rango (entrenado → experto, etc.).</p>
+            <div class="opts">
+              @for (sk of skillList; track sk.slug) {
+                <button class="chip" [class.on]="picked(slot) === sk.slug" (click)="pick(slot, sk.slug)">
+                  {{ sk.name }}
+                </button>
+              }
+              @for (lo of loreOptions(); track lo.slug) {
+                <button class="chip" [class.on]="picked(slot) === lo.slug" (click)="pick(slot, lo.slug)">
+                  {{ lo.name }}
+                </button>
+              }
+            </div>
+          } @else {
+            <app-option-picker
+              [options]="optionsFor(slot)"
+              [selectedId]="picked(slot)"
+              (selectedIdChange)="pick(slot, $event)"
+            />
+          }
+        </section>
+      }
+
+      <div class="nav">
+        <a class="btn" [routerLink]="['/characters', id()]">Cancelar</a>
+        <button class="btn primary" (click)="confirm()" [disabled]="!allResolved() || saving()">
+          {{ saving() ? 'Guardando…' : 'Confirmar nivel ' + nextLevel() }}
+        </button>
+      </div>
+    }
+  </div>
+} @else {
+  <div class="container"><p class="muted">Cargando…</p></div>
+}

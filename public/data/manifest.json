@@ -1,0 +1,50 @@
+{
+  "generatedAt": "2026-08-18T21:11:18.034Z",
+  "source": "pf2e-legacy-content",
+  "packs": {
+    "classes": {
+      "count": 23,
+      "kb": 56
+    },
+    "ancestries": {
+      "count": 36,
+      "kb": 27
+    },
+    "ancestry-features": {
+      "count": 39,
+      "kb": 26
+    },
+    "heritages": {
+      "count": 230,
+      "kb": 141
+    },
+    "backgrounds": {
+      "count": 389,
+      "kb": 451
+    },
+    "class-features": {
+      "count": 553,
+      "kb": 655
+    },
+    "feats": {
+      "count": 4238,
+      "kb": 3425
+    },
+    "spells": {
+      "count": 1520,
+      "kb": 1981
+    },
+    "equipment": {
+      "count": 4563,
+      "kb": 5509
+    },
+    "deities": {
+      "count": 275,
+      "kb": 435
+    },
+    "actions": {
+      "count": 361,
+      "kb": 328
+    }
+  }
+}
