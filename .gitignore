@@ -1,0 +1,65 @@
+# See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+# Compiled output
+/dist
+/tmp
+/out-tsc
+/bazel-out
+
+# Node
+/node_modules
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+*.log
+
+# IDEs and editors
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/mcp.json
+.history/*
+
+# Miscellaneous
+/.angular
+.sass-cache/
+/connect.lock
+/coverage
+/test-results
+/libpeerconnection.log
+testem.log
+/typings
+__screenshots__/
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------- este proyecto
+
+# El dataset legacy, clonado de dogstarrb/pf2e-legacy-content: son 190 MB y se
+# vuelve a bajar con un git clone. Lo que sí se versiona es lo que sale de él
+# (public/data/*.json), porque sin eso la app no puede buildear ni desplegarse.
+.data-source/
+
+# Preferencias locales de Claude Code (las compartidas, .claude/settings.json y
+# .claude/launch.json, sí van al repo).
+.claude/settings.local.json
+
+# Variables de entorno, por si alguna vez hacen falta. Ojo: las credenciales de
+# Supabase de hoy NO están acá, están en src/environments/environment.ts.
+.env
+.env.*
+!.env.example
