@@ -48,3 +48,19 @@ export function formatCp(cp: number): string {
   }
   return partes.join(' ');
 }
+
+/**
+ * 12345 -> { pp: 12, gp: 3, sp: 4, cp: 5 }.
+ *
+ * A diferencia de formatCp, acá sí se usa el platino: la bolsa del personaje muestra
+ * las cuatro monedas que existen, y el jugador escribe en cada una.
+ */
+export function splitCp(total: number): Required<Price> {
+  let resto = Math.max(0, Math.round(total));
+  const bolsa = { pp: 0, gp: 0, sp: 0, cp: 0 };
+  for (const moneda of ['pp', 'gp', 'sp', 'cp'] as const) {
+    bolsa[moneda] = Math.floor(resto / EN_COBRE[moneda]);
+    resto -= bolsa[moneda] * EN_COBRE[moneda];
+  }
+  return bolsa;
+}

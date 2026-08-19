@@ -171,6 +171,12 @@ export interface CharacterState {
   shield: { raised: boolean; hp: number };
   /** Monedas actuales, en cobre. Cambia todo el tiempo, por eso va en el estado. */
   coins: number;
+  /**
+   * Las mismas monedas, pero como las tenés en la mano: 15 gp son 15 gp, no
+   * 1 pp y 5 gp. `coins` sigue siendo el total en cobre para comprar y vender;
+   * esto es cómo está repartido. Comprar sí reacomoda la bolsa, porque te dan vuelto.
+   */
+  purse?: { pp: number; gp: number; sp: number; cp: number };
   spellSlotsUsed: Record<string, number>;
   /**
    * Conjuros preparados hoy, por rango: { "1": ["<id>", null] }.
@@ -232,6 +238,7 @@ export function emptyState(): CharacterState {
     focusPoints: 0,
     shield: { raised: false, hp: 0 },
     coins: 0,
+    purse: { pp: 0, gp: 0, sp: 0, cp: 0 },
     spellSlotsUsed: {},
     preparedSpells: {},
   };

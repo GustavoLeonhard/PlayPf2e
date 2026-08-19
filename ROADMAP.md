@@ -178,6 +178,60 @@ La hoja se reordenó siguiendo cómo se usa en la mesa, de arriba hacia abajo:
 - [x] **Puño**: el dataset no lo trae (sus únicos items "unarmed" son mágicos), así que lo arma el
       motor y pasa por el mismo pipeline que cualquier arma
 
+### 4-septies. Formato de escritorio  ✅ HECHO
+
+La hoja estaba armada como una app de celular: contenedor de 1100px y las secciones apiladas en
+tarjetas angostas. Ahora se usa cómoda en una pantalla de PC.
+
+- [x] El contenedor de la hoja llega a 1720px (el resto de las pantallas sigue en 1100: un
+      formulario de creación a 1700px no se lee)
+- [x] `<app-accordion>` (`src/app/shared/accordion.component.ts`): cada sección es una **fila de
+      ancho completo** que se pliega a una barra de un renglón, con el dato clave en el encabezado
+      (el bulk cargado, la plata, cuántos ataques). Arrancan abiertas las que se usan cada turno;
+      rasgos, bolsa e inventario arrancan cerradas
+- [x] El contenido plegado **no se destruye**, se oculta por CSS: un editor de arma a medio llenar
+      sobrevive a cerrar y abrir la sección
+- [x] Adentro de cada fila el contenido se reparte en columnas con **multi-columna** (`.rejilla`),
+      no con grid: así una habilidad y su breakdown, o un arma y su editor, siguen siendo hermanos
+      y fluyen juntos sin envolver nada en wrappers
+- [x] Sigue andando en pantalla angosta: las columnas se reducen a una sola y nada desborda
+
+### 4-octies. Ajustes de uso en PC  ✅ HECHO
+
+- [x] Tipografía base de 15px a **22px** (todo lo demás está en rem, así que escaló solo;
+      las columnas de las secciones pasaron de px a rem para acompañar)
+- [x] **HP** a la izquierda de velocidad y **editable a mano**: en la mesa te pegan 14 de una,
+      no de a uno. Ya no hay botonera de ±1/±5
+- [x] **Percepción e iniciativa** subieron a la fila de defensas: los atributos quedaron solos
+      en su fila y respiran
+- [x] **Agregar y quitar idiomas** desde la hoja, con la lista Legacy y los inventados por el
+      máster. El cupo se muestra pero **no bloquea**: si te pasás, la hoja lo dice
+- [x] **Segundo y tercer ataque** en cada arma, con el multiple attack penalty ya restado
+- [x] Arreglado el nombre de los conjuros, que se dibujaba con el cromado gris del navegador
+
+Dos arreglos que salieron de ahí:
+
+- `build.languages` no existía en los personajes creados antes de esa función. El binding
+  reventaba y Angular dejaba **el resto del elemento sin pintar, sin ningún error visible**:
+  los botones de idioma salían vacíos. Ahora `load()` normaliza los campos que pueden faltar
+  (`languages`, `favorites`, `inventory`, `acknowledgedWarnings`).
+- El multiple attack penalty (−5/−10, −4/−8 con **agile**) está escrito a mano en
+  `sheet.component.ts`, igual que el puño: **falta confirmarlo contra la fuente Legacy**.
+
+### 4-nonies. Secciones, bolsa y cabecera de ataques  ✅ HECHO
+
+- [x] Los **atributos** pasaron a ser una sección plegable más, como el resto
+- [x] La **bolsa se mudó adentro del inventario**, fija arriba mientras scrolleás la lista, y
+      repartida en las cuatro monedas (pp / gp / sp / cp), cada una como campo editable
+- [x] Los ataques tienen **cabecera** (Arma · 1º · 2º · 3º): tres números seguidos no decían
+      cuál era cuál. Dejaron de ir en multi-columna y ahora son una tabla
+- [x] Los detalles del personaje (edad, apariencia, notas) salieron de la bolsa —donde no
+      pintaban nada— a su propia sección
+
+**La bolsa se guarda por denominación** (`state.purse`), no solo como total: si escribís 15 en
+oro quedan 15 gp, no 1 pp y 5 gp. `state.coins` sigue siendo el total en cobre y es lo que usan
+comprar y vender; después de una compra la bolsa **sí** se reacomoda, porque te dan vuelto.
+
 ### 5. Deudas conocidas
 
 - El ChoiceSet del tipo de dragón (linaje dracónico) trae la lista embebida en vez de
@@ -190,6 +244,8 @@ La hoja se reordenó siguiendo cómo se usa en la mesa, de arriba hacia abajo:
 - Rule elements de velocidad (Fleet).
 - Compañero animal y familiar (Druid, Ranger, Witch).
 - Alchemist y Kineticist: subsistemas propios.
+- El multiple attack penalty se escribió a mano (−5/−10, −4/−8 con agile), sin verificar contra
+  la fuente Legacy.
 - El puño usa las estadísticas por defecto (1d4 contundente, agile/finesse/nonlethal): es lo único
   de la hoja que no sale ni del dataset ni de una fuente Legacy verificada.
 

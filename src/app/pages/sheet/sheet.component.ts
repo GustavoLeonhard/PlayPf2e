@@ -7,12 +7,13 @@ import { ABILITIES, ABILITY_NAMES, PROFICIENCY_NAMES } from '../../core/models/c
 import type { Equipment, Spell } from '../../core/models/content.model';
 import { CONDITION_BY_ID } from '../../core/rules/conditions';
 import { criticalTotal, rollFormula, type DiceRoll } from '../../core/rules/dice';
-import { languageLabel } from '../../core/rules/languages';
-import { formatCp, priceToCp } from '../../core/rules/money';
+import { COMMON_LANGUAGES, UNCOMMON_LANGUAGES, languageLabel } from '../../core/rules/languages';
+import { formatCp, priceToCp, splitCp } from '../../core/rules/money';
 import { castableRanks, scaledDamage } from '../../core/rules/spellcasting';
 import { computeCharacter, type ContentIndex, type StrikeSheet } from '../../core/rules/character.engine';
 import { signed, type Stat } from '../../core/rules/modifiers';
 import { CharacterService } from '../../core/services/character.service';
+import { AccordionComponent } from '../../shared/accordion.component';
 import { ContentService, type ConditionText } from '../../core/services/content.service';
 
 export interface RollResult {
@@ -30,7 +31,7 @@ export interface RollResult {
 
 @Component({
   selector: 'app-sheet',
-  imports: [RouterLink, NgTemplateOutlet],
+  imports: [RouterLink, NgTemplateOutlet, AccordionComponent],
   templateUrl: './sheet.component.html',
   styleUrl: './sheet.component.scss',
 })
@@ -102,6 +103,10 @@ export class SheetComponent implements OnInit {
       record.state.preparedSpells ??= {};
       record.state.coins ??= 0;
       record.state.spellSlotsUsed ??= {};
+      record.build.languages ??= [];
+      record.build.favorites ??= [];
+      record.build.inventory ??= [];
+      record.build.acknowledgedWarnings ??= [];
       if (!record.state.hp.current) {
         const computed = computeCharacter(record.build, record.state, index);
         record.state.hp.current = computed.maxHp.total;
@@ -113,6 +118,9 @@ export class SheetComponent implements OnInit {
   // --------------------------------------------------------- ataques y rasgos
 
   /** La hoja separa los ataques: cuerpo a cuerpo arriba, a distancia abajo. */
+  /** "1 ataque", no "1 ataques": va en el encabezado de la sección. */
+  ataques = (n: number) => `${n} ${n === 1 ? 'ataque' : 'ataques'}`;
+
   readonly meleeStrikes = computed(() => this.sheet()?.strikes.filter((s) => !s.ranged) ?? []);
   readonly rangedStrikes = computed(() => this.sheet()?.strikes.filter((s) => s.ranged) ?? []);
 
@@ -197,6 +205,63 @@ export class SheetComponent implements OnInit {
     else if ('spell' in fav && fav.spell) this.castSpell(fav.spell, fav.spell.level);
   }
 
+  // ---------------------------------------------------------------- idiomas
+
+  readonly editingLanguages = signal(false);
+
+  /** Los de la lista Legacy que no da ya la ancestría. */
+  readonly languageOptions = computed(() => {
+    const propios = new Set(this.sheet()?.languages.fromAncestry ?? []);
+    return [...COMMON_LANGUAGES, ...UNCOMMON_LANGUAGES].filter((l) => !propios.has(l));
+  });
+
+  /** Los inventados por el máster: los que no están en ninguna lista conocida. */
+  readonly customLanguages = computed(() => {
+    const conocidos = new Set<string>([
+      ...COMMON_LANGUAGES,
+      ...UNCOMMON_LANGUAGES,
+      ...(this.sheet()?.languages.fromAncestry ?? []),
+    ]);
+    return (this.record()?.build.languages ?? []).filter((l) => !conocidos.has(l));
+  });
+
+  /** Marcador para el editor: los inventados no están en ninguna lista. */
+  readonly customLanguageCount = computed(() => {
+    return this.customLanguages().length;
+  });
+
+  hasLanguage = (language: string) => (this.record()?.build.languages ?? []).includes(language);
+
+  /**
+   * El cupo (modificador de Inteligencia + los extra de la ancestría) se muestra,
+   * pero no bloquea: un máster puede regalarte un idioma por la historia, igual que
+   * te regala un objeto. Si te pasás, la hoja lo dice.
+   */
+  async toggleLanguage(language: string) {
+    const record = this.record();
+    if (!record) return;
+
+    const actuales = record.build.languages ?? [];
+    record.build.languages = actuales.includes(language)
+      ? actuales.filter((l) => l !== language)
+      : [...actuales, language];
+
+    await this.guardar(record);
+  }
+
+  /** Cuántos elegiste de más respecto del cupo. */
+  readonly extraLanguages = computed(() => {
+    const sheet = this.sheet();
+    if (!sheet) return 0;
+    return Math.max(0, sheet.languages.chosen.length - sheet.languages.slots);
+  });
+
+  async addCustomLanguage(nombre: string) {
+    const limpio = nombre.trim().toLowerCase();
+    if (!limpio || this.hasLanguage(limpio)) return;
+    await this.toggleLanguage(limpio);
+  }
+
   // ---------------------------------------------------------------- retrato
 
   /**
@@ -267,7 +332,21 @@ export class SheetComponent implements OnInit {
    *   deadly dX — se suma un dado de dX, tirado despues de duplicar
    * El dado extra NO se duplica en ninguno de los dos casos.
    */
-  rollStrike(strike: StrikeSheet) {
+  /**
+   * Multiple Attack Penalty: el segundo ataque del turno va a −5 y el tercero a −10;
+   * con un arma **agile** es −4 y −8.
+   *
+   * OJO: esto es una regla escrita a mano, no sale del dataset. Falta confirmarla
+   * contra la fuente Legacy del proyecto.
+   */
+  mapPenalty(strike: StrikeSheet, ataque: number): number {
+    if (ataque <= 1) return 0;
+    const agil = strike.traits.includes('agile');
+    return ataque === 2 ? (agil ? -4 : -5) : agil ? -8 : -10;
+  }
+
+  rollStrike(strike: StrikeSheet, ataque = 1) {
+    const map = this.mapPenalty(strike, ataque);
     const die = 1 + Math.floor(Math.random() * 20);
     const dados = strike.damageDice.match(/^(\d+)d(\d+)$/);
     const mods = strike.damage.total;
@@ -293,10 +372,10 @@ export class SheetComponent implements OnInit {
     }
 
     this.lastRoll.set({
-      label: strike.name,
+      label: ataque > 1 ? `${strike.name} (${ataque}º ataque, MAP ${map})` : strike.name,
       die,
-      modifier: strike.attack.total,
-      total: die + strike.attack.total,
+      modifier: strike.attack.total + map,
+      total: die + strike.attack.total + map,
       crit: die === 20 ? 'success' : die === 1 ? 'failure' : null,
       damage: {
         detail: [`${normal.detail}${mods ? ' ' + signed(mods) : ''}`, ...detalles].filter(Boolean).join(' · '),
@@ -736,7 +815,10 @@ export class SheetComponent implements OnInit {
     if (existente) existente.quantity += 1;
     else record.build.inventory = [...record.build.inventory, { id, quantity: 1, equipped: false }];
 
-    if (pagar) record.state.coins = (record.state.coins ?? 0) - precio;
+    if (pagar) {
+      record.state.coins = (record.state.coins ?? 0) - precio;
+      record.state.purse = splitCp(record.state.coins);
+    }
     this.addingItem.set(false);
     this.itemSearch.set('');
     await this.guardar(record);
@@ -793,6 +875,7 @@ export class SheetComponent implements OnInit {
     if (!record || !fila) return;
 
     record.state.coins = (record.state.coins ?? 0) + Math.floor(fila.priceCp / 2);
+    record.state.purse = splitCp(record.state.coins);
     record.build.inventory =
       fila.item.quantity > 1
         ? record.build.inventory.map((it, i) => (i === index ? { ...it, quantity: it.quantity - 1 } : it))
@@ -885,6 +968,18 @@ export class SheetComponent implements OnInit {
 
   // ----------------------------------------------------------- estado (HP)
 
+  /** El HP se escribe a mano: en la mesa se pierden 14 de una, no de a uno. */
+  async setHp(valor: string) {
+    const record = this.record();
+    const sheet = this.sheet();
+    if (!record || !sheet) return;
+    const numero = Number(valor);
+    if (Number.isNaN(numero)) return;
+    record.state.hp.current = Math.max(0, Math.min(sheet.maxHp.total, Math.round(numero)));
+    this.record.set({ ...record });
+    await this.characters.save(record);
+  }
+
   async adjustHp(delta: number) {
     const record = this.record();
     const sheet = this.sheet();
@@ -897,13 +992,32 @@ export class SheetComponent implements OnInit {
 
   readonly formatCp = formatCp;
 
-  /** La bolsa cambia todo el tiempo en la mesa: se ajusta a mano. */
-  async adjustCoins(cp: number) {
+  /**
+   * La bolsa como la tenés en la mano: si escribís 15 en oro, quedan 15 gp, no
+   * 1 pp y 5 gp. Los personajes viejos no tienen la bolsa repartida, así que se
+   * reparte su total una primera vez.
+   */
+  readonly purse = computed(() => {
+    const state = this.record()?.state;
+    return state?.purse ?? splitCp(state?.coins ?? 0);
+  });
+
+  readonly coinTypes = [
+    { key: 'pp', name: 'Platino' },
+    { key: 'gp', name: 'Oro' },
+    { key: 'sp', name: 'Plata' },
+    { key: 'cp', name: 'Cobre' },
+  ] as const;
+
+  async setCoin(moneda: 'pp' | 'gp' | 'sp' | 'cp', valor: string) {
     const record = this.record();
     if (!record) return;
-    record.state.coins = Math.max(0, (record.state.coins ?? 0) + cp);
-    this.record.set({ ...record });
-    await this.characters.save(record);
+
+    const cantidad = Math.max(0, Math.round(Number(valor) || 0));
+    const bolsa = { ...this.purse(), [moneda]: cantidad };
+    record.state.purse = bolsa;
+    record.state.coins = priceToCp(bolsa);
+    await this.guardar(record);
   }
 
   async setHeroPoints(value: number) {

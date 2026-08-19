@@ -259,11 +259,53 @@
 }
 
 /* --- columnas */
-.cols {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+/*
+ * La hoja es para usarla en una pantalla de PC: el contenedor de 1100px de las
+ * otras pantallas dejaba media pantalla vacia y apretaba todo en una columna.
+ */
+:host .container {
+  max-width: min(1720px, 100%);
+}
+
+/*
+ * Cada seccion es una FILA de ancho completo que se pliega. Adentro, el
+ * contenido se reparte en columnas con multi-columna en vez de grid: asi una
+ * habilidad y su breakdown, o un arma y su editor, siguen siendo hermanos y
+ * fluyen juntos sin envolver nada.
+ */
+.secciones {
+  display: flex;
+  flex-direction: column;
   gap: 0.8rem;
-  align-items: start;
+}
+
+.rejilla {
+  columns: 19rem auto;
+  column-gap: 1.6rem;
+}
+
+.rejilla.angosta {
+  columns: 12rem auto;
+}
+
+/* Nada se parte a la mitad entre dos columnas. */
+.rejilla > *,
+.rejilla .skill-row,
+.rejilla .strike,
+.rejilla .inv-row,
+.rejilla .spell-row,
+.rejilla .feat-group,
+.rejilla .breakdown {
+  break-inside: avoid;
+}
+
+/* El editor de un arma necesita el ancho entero, no una columna. */
+.rejilla .weapon-editor {
+  break-inside: avoid;
+}
+
+.spell-stats.destacadas {
+  margin-bottom: 0.6rem;
 }
 
 .feat-row {
@@ -896,5 +938,153 @@
 /* Sin tope, la ultima tarjeta que sobra de la fila se estira sola a lo ancho. */
 .fila.tiradas .card,
 .fila.info .card:not(.idiomas) {
-  max-width: 220px;
+  max-width: 11rem;
+}
+
+/* -------------------------------------------------------- puntos de vida */
+
+.fila.info .hp .hp-edit {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+/* El HP se escribe directo: en la mesa te pegan 14 de una, no de a uno. */
+.hp-input {
+  width: 3.4rem;
+  padding: 0.15rem 0.3rem;
+  text-align: right;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+  background: none;
+  border: 1px solid transparent;
+  border-bottom-color: var(--border);
+}
+
+.hp-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* ------------------------------------------------------------- idiomas */
+
+.idiomas.editando {
+  flex: 1 1 100%;
+  max-width: none;
+}
+
+.lang-editor .opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.3rem 0 0.5rem;
+}
+
+.lang-editor .opts .tag {
+  cursor: pointer;
+}
+
+.lang-editor input {
+  margin-top: 0.2rem;
+}
+
+.langs button.tag {
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------- los 3 ataques */
+
+.mod.ataques {
+  display: flex;
+  align-items: baseline;
+  gap: 0.15rem;
+}
+
+/* El segundo y el tercero se ven secundarios: el que más se usa es el primero. */
+.mod.ataques .map {
+  font-size: 0.8em;
+  color: var(--muted);
+}
+
+.mod.ataques .map:hover {
+  color: var(--accent-strong);
+}
+
+/* ---------------------------------------------------- nombre de un conjuro */
+
+/*
+ * Sin esto el boton se dibuja con el cromado gris del navegador: el reset global
+ * solo hereda la tipografia.
+ */
+.spell-name {
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  padding: 0.15rem 0;
+}
+
+.spell-name:hover:not(:disabled) {
+  color: var(--accent-strong);
+}
+
+/* ------------------------------------------------------- tabla de ataques */
+
+/*
+ * Los ataques no van en multi-columna: son una tabla con cabecera, y tres números
+ * sueltos sin encabezado no dicen cuál es cuál.
+ */
+.ataques-tabla .strike {
+  align-items: baseline;
+}
+
+.strike.cabecera {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.strike.cabecera .mod.ataques span {
+  min-width: 3.2rem;
+  text-align: right;
+}
+
+/* Los números de cada arma caen bajo su columna. */
+.mod.ataques .skill-mod {
+  min-width: 3.2rem;
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------- bolsa */
+
+.bolsa {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.5rem 0 0.7rem;
+  margin-bottom: 0.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.bolsa .moneda {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.bolsa .moneda input {
+  width: 5rem;
+  padding: 0.2rem 0.4rem;
+  text-align: right;
+  color: var(--accent-strong);
+  font-weight: 600;
 }

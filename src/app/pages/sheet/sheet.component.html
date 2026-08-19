@@ -88,6 +88,21 @@
 
     <!-- Fila 1: lo que describe al personaje en la mesa -->
     <section class="fila info">
+      <div class="card mini hp">
+        <span class="label muted">Puntos de vida</span>
+        <span class="hp-edit">
+          <input
+            class="hp-input"
+            type="number"
+            min="0"
+            [max]="s.maxHp.total"
+            [value]="record()?.state?.hp?.current ?? 0"
+            (change)="setHp($any($event.target).value)"
+          />
+          <span class="muted">/ {{ s.maxHp.total }}</span>
+        </span>
+      </div>
+
       <div class="card mini">
         <span class="label muted">Velocidad</span>
         <span class="value static">{{ s.speed.total }}<small> ft</small></span>
@@ -100,19 +115,57 @@
         </span>
       </div>
 
-      <div class="card mini idiomas">
-        <span class="label muted">Idiomas</span>
+      <div class="card mini idiomas" [class.editando]="editingLanguages()">
+        <span class="label muted">
+          Idiomas
+          <button class="w-ok" (click)="editingLanguages.set(!editingLanguages())">
+            {{ editingLanguages() ? 'listo' : 'editar' }}
+          </button>
+        </span>
+
         <p class="langs">
+          <!-- Los de la ancestría no se eligen, así que tampoco se sacan. -->
           @for (lang of s.languages.fromAncestry; track lang) {
-            <span class="tag">{{ languageLabel(lang) }}</span>
+            <span class="tag" title="Te lo da tu ancestría">{{ languageLabel(lang) }}</span>
           }
           @for (lang of s.languages.chosen; track lang) {
-            <span class="tag chosen-lang">{{ languageLabel(lang) }}</span>
+            <button class="tag chosen-lang" title="Quitar" (click)="toggleLanguage(lang)">
+              {{ languageLabel(lang) }} ✕
+            </button>
           }
           @if (!s.languages.fromAncestry.length && !s.languages.chosen.length) {
             <span class="muted">Ninguno.</span>
           }
         </p>
+
+        @if (editingLanguages()) {
+          <div class="lang-editor">
+            <p class="muted small">
+              Elegidos {{ s.languages.chosen.length }} de {{ s.languages.slots }} cupos
+              <span class="hint">(modificador de Inteligencia + los extra de tu ancestría)</span>
+              @if (extraLanguages()) {
+                <strong class="over"> — {{ extraLanguages() }} de más: que te los haya dado tu máster.</strong>
+              }
+            </p>
+
+            <div class="opts">
+              @for (lang of languageOptions(); track lang) {
+                <button class="tag" [class.chosen-lang]="hasLanguage(lang)" (click)="toggleLanguage(lang)">
+                  {{ languageLabel(lang) }}
+                </button>
+              }
+            </div>
+
+            <label class="muted small">
+              ¿Tu máster inventó uno? Escribilo y apretá Enter
+              <input
+                type="text"
+                placeholder="p. ej. lengua de las profundidades"
+                (keydown.enter)="addCustomLanguage($any($event.target).value); $any($event.target).value = ''"
+              />
+            </label>
+          </div>
+        }
       </div>
 
       <div class="card mini cond">
@@ -168,19 +221,38 @@
       </section>
     }
 
-    <!-- Fila 2: defensas — cuánto aguantás y cuánto te cuesta pegarte -->
+    <!-- Fila 2: lo que tirás todo el tiempo, y lo que te mantiene vivo -->
     <section class="fila defensas">
-      <div class="card stat-big hp">
-        <span class="label muted">Puntos de vida</span>
-        <div class="hp-controls">
-          <button class="btn" (click)="adjustHp(-5)">-5</button>
-          <button class="btn" (click)="adjustHp(-1)">-1</button>
-          <span class="hp-value">
-            {{ record()?.state?.hp?.current ?? 0 }} <small class="muted">/ {{ s.maxHp.total }}</small>
-          </span>
-          <button class="btn" (click)="adjustHp(1)">+1</button>
-          <button class="btn" (click)="adjustHp(5)">+5</button>
-        </div>
+      <div class="card stat-big destacado">
+        <span class="label muted">Percepción</span>
+        <button class="value" (click)="roll('Percepción', s.perception)">{{ signed(s.perception.total) }}</button>
+        <button class="why muted" (click)="toggleBreakdown('perception')">¿por qué?</button>
+        @if (openBreakdown() === 'perception') {
+          <div class="breakdown">
+            @for (m of s.perception.breakdown; track $index) {
+              <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="card stat-big destacado initiative">
+        <span class="label muted">Iniciativa</span>
+        @if (initiativeOption(); as ini) {
+          <button class="value" (click)="rollInitiative()">{{ signed(ini.stat.total) }}</button>
+        }
+        <select class="ini-select" [value]="initiativeKey()" (change)="initiativeKey.set($any($event.target).value)">
+          @for (opcion of s.initiative.options; track opcion.key) {
+            <option [value]="opcion.key">{{ opcion.label }}</option>
+          }
+        </select>
+        @if (s.initiative.conditional.length) {
+          <p class="ini-cond muted">
+            @for (bono of s.initiative.conditional; track bono.source) {
+              {{ bono.source }} {{ signed(bono.value) }} si {{ bono.predicate.join(', ') }} ·
+            }
+          </p>
+        }
       </div>
 
       <div class="card stat-big">
@@ -252,42 +324,9 @@
       </div>
     </section>
 
-    <!-- Fila 3: las dos tiradas de todos los turnos, y después los atributos -->
-    <section class="fila tiradas">
-      <div class="card stat-big destacado">
-        <span class="label muted">Percepción</span>
-        <button class="value" (click)="roll('Percepción', s.perception)">{{ signed(s.perception.total) }}</button>
-        <button class="why muted" (click)="toggleBreakdown('perception')">¿por qué?</button>
-        @if (openBreakdown() === 'perception') {
-          <div class="breakdown">
-            @for (m of s.perception.breakdown; track $index) {
-              <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
-            }
-          </div>
-        }
-      </div>
-
-      <div class="card stat-big destacado initiative">
-        <span class="label muted">Iniciativa</span>
-        @if (initiativeOption(); as ini) {
-          <button class="value" (click)="rollInitiative()">{{ signed(ini.stat.total) }}</button>
-        }
-        <select class="ini-select" [value]="initiativeKey()" (change)="initiativeKey.set($any($event.target).value)">
-          @for (opcion of s.initiative.options; track opcion.key) {
-            <option [value]="opcion.key">{{ opcion.label }}</option>
-          }
-        </select>
-        @if (s.initiative.conditional.length) {
-          <p class="ini-cond muted">
-            @for (bono of s.initiative.conditional; track bono.source) {
-              {{ bono.source }} {{ signed(bono.value) }} si {{ bono.predicate.join(', ') }} ·
-            }
-          </p>
-        }
-      </div>
-
-      <div class="separador"></div>
-
+    <section class="secciones">
+      <app-accordion titulo="Atributos">
+        <div class="fila tiradas">
       @for (ab of abilityList; track ab) {
         <div class="card stat-big">
           <span class="label muted">{{ abilityNames[ab] }}</span>
@@ -305,11 +344,11 @@
           }
         </div>
       }
-    </section>
+        </div>
+      </app-accordion>
 
-    <section class="cols">
-      <div class="card">
-        <h2>Rasgos y dotes</h2>
+      <app-accordion titulo="Rasgos y dotes" [inicial]="false">
+        <div class="rejilla">
         @for (grupo of featGroups(); track grupo.label) {
           <div class="feat-group">
             <h3 class="muted">{{ grupo.label }}</h3>
@@ -321,10 +360,11 @@
             }
           </div>
         }
-      </div>
+        </div>
+      </app-accordion>
 
-      <div class="card">
-        <h2>Habilidades</h2>
+      <app-accordion titulo="Habilidades">
+        <div class="rejilla angosta">
         @for (sk of s.skills; track sk.slug) {
           <div class="skill-row" [class.untrained]="sk.rank === 0">
             <button
@@ -370,11 +410,12 @@
             </div>
           }
         }
-      </div>
+        </div>
+      </app-accordion>
 
       <!-- Favoritos: lo que usás todos los turnos, sin buscarlo en la lista -->
-      <div class="card favoritos">
-        <h2>Favoritos</h2>
+      <app-accordion titulo="Favoritos" class="favoritos">
+        <div class="rejilla angosta">
         @for (fav of favorites(); track fav.fav.kind + fav.fav.ref) {
           <div class="skill-row">
             <button class="skill-name" (click)="rollFavorite(fav)">{{ fav.label }}</button>
@@ -386,31 +427,57 @@
             Marcá con ★ un ataque, una habilidad o un conjuro y va a aparecer acá.
           </p>
         }
-      </div>
+        </div>
+      </app-accordion>
 
-      <div class="card">
-        <h2>Cuerpo a cuerpo</h2>
+      <app-accordion titulo="Cuerpo a cuerpo" [subtitulo]="ataques(meleeStrikes().length)">
+        <div class="ataques-tabla">
+        @if (meleeStrikes().length) {
+          <!-- Sin esto, tres números seguidos no dicen qué es cada uno. -->
+          <div class="strike cabecera">
+            <span></span>
+            <span class="nombre">Arma</span>
+            <span class="mod ataques">
+              <span title="Primer ataque del turno">1º</span>
+              <span title="Segundo ataque: entra el multiple attack penalty">2º</span>
+              <span title="Tercer ataque y siguientes">3º</span>
+            </span>
+          </div>
+        }
         @for (st of meleeStrikes(); track st.name + st.inventoryIndex) {
           <ng-container [ngTemplateOutlet]="strikeTpl" [ngTemplateOutletContext]="{ $implicit: st }" />
         } @empty {
           <p class="muted small">Nada equipado.</p>
         }
-      </div>
+        </div>
+      </app-accordion>
 
-      <div class="card">
-        <h2>A distancia</h2>
+      <app-accordion titulo="A distancia" [subtitulo]="ataques(rangedStrikes().length)">
+        <div class="ataques-tabla">
+        @if (rangedStrikes().length) {
+          <!-- Sin esto, tres números seguidos no dicen qué es cada uno. -->
+          <div class="strike cabecera">
+            <span></span>
+            <span class="nombre">Arma</span>
+            <span class="mod ataques">
+              <span title="Primer ataque del turno">1º</span>
+              <span title="Segundo ataque: entra el multiple attack penalty">2º</span>
+              <span title="Tercer ataque y siguientes">3º</span>
+            </span>
+          </div>
+        }
         @for (st of rangedStrikes(); track st.name + st.inventoryIndex) {
           <ng-container [ngTemplateOutlet]="strikeTpl" [ngTemplateOutletContext]="{ $implicit: st }" />
         } @empty {
           <p class="muted small">No tenés armas a distancia equipadas.</p>
         }
-      </div>
+        </div>
+      </app-accordion>
 
       @if (s.spellcasting; as sc) {
-        <div class="card spells">
-          <h2>Conjuros <small class="muted">{{ sc.tradition }}</small></h2>
+        <app-accordion titulo="Conjuros" [subtitulo]="sc.tradition ?? ''" class="spells">
 
-          <div class="spell-stats">
+          <div class="spell-stats destacadas">
             <button class="spell-stat" (click)="roll('Ataque de conjuro', sc.attack)">
               <span class="muted">Ataque</span>
               <strong>{{ signed(sc.attack.total) }}</strong>
@@ -464,6 +531,7 @@
               </div>
             }
 
+            <div class="rejilla">
             @for (group of preparedSlots(); track group.rank) {
               <div class="spell-group">
                 <div class="spell-head">
@@ -508,8 +576,10 @@
                 }
               </div>
             }
+            </div>
           }
 
+          <div class="rejilla">
           @for (group of spellGroups(); track group.label) {
             <div class="spell-group">
               <div class="spell-head">
@@ -569,17 +639,12 @@
               }
             </div>
           }
-        </div>
+          </div>
+      </app-accordion>
       }
 
       @if (s.focus || focusOptions().length) {
-        <div class="card spells">
-          <h2>
-            Focus spells
-            @if (s.focus; as focus) {
-              <small class="muted">rango {{ focus.rank }}</small>
-            }
-          </h2>
+        <app-accordion titulo="Focus spells" [subtitulo]="s.focus ? 'rango ' + s.focus.rank : ''" class="spells">
 
           @if (s.focus; as focus) {
             <div class="focus-head">
@@ -647,44 +712,34 @@
               }
             </select>
           }
-        </div>
+      </app-accordion>
       }
 
-      <div class="card">
-        <h2>Bolsa</h2>
-        <div class="coins">
-          <span class="coin-total">{{ formatCp(record()?.state?.coins ?? 0) }}</span>
-          <span class="coin-buttons">
-            <button class="btn" (click)="adjustCoins(-100)">−1 gp</button>
-            <button class="btn" (click)="adjustCoins(-10)">−1 sp</button>
-            <button class="btn" (click)="adjustCoins(10)">+1 sp</button>
-            <button class="btn" (click)="adjustCoins(100)">+1 gp</button>
-          </span>
+      <app-accordion
+        titulo="Inventario"
+        [subtitulo]="s.bulk.carried + ' / ' + s.bulk.encumberedAt + ' bulk' + (s.bulk.encumbered ? ' — encumbered' : '')"
+        [inicial]="false"
+      >
+        <!--
+          La plata queda fija arriba del inventario: es lo que mirás mientras comprás.
+          Cada moneda se escribe; el total se guarda en cobre y se reparte solo.
+        -->
+        <div class="bolsa">
+          @for (moneda of coinTypes; track moneda.key) {
+            <label class="moneda">
+              <span class="muted">{{ moneda.name }}</span>
+              <input
+                type="number"
+                min="0"
+                [value]="$any(purse())[moneda.key]"
+                (change)="setCoin(moneda.key, $any($event.target).value)"
+              />
+              <small class="muted">{{ moneda.key }}</small>
+            </label>
+          }
         </div>
 
-        @if (s.appearance || s.age || record()?.build?.notes) {
-          <div class="detalles-pj">
-            @if (s.age) {
-              <p><strong>Edad:</strong> {{ s.age }}</p>
-            }
-            @if (s.appearance) {
-              <p>{{ s.appearance }}</p>
-            }
-            @if (record()?.build?.notes; as notas) {
-              <p class="muted">{{ notas }}</p>
-            }
-          </div>
-        }
-      </div>
-
-      <div class="card">
-        <h2>
-          Inventario
-          <small class="muted" [class.over]="s.bulk.encumbered">
-            {{ s.bulk.carried }} / {{ s.bulk.encumberedAt }} bulk
-            @if (s.bulk.encumbered) { — encumbered }
-          </small>
-        </h2>
+        <div class="rejilla angosta">
 
         @for (fila of inventory(); track fila.index) {
           <div class="inv-row" [class.equipped]="fila.item.equipped">
@@ -775,7 +830,26 @@
             </div>
           </div>
         }
-      </div>
+        </div>
+      </app-accordion>
+
+      @if (s.appearance || s.age || record()?.build?.notes) {
+        <app-accordion titulo="Detalles" [inicial]="false">
+        @if (s.appearance || s.age || record()?.build?.notes) {
+          <div class="detalles-pj">
+            @if (s.age) {
+              <p><strong>Edad:</strong> {{ s.age }}</p>
+            }
+            @if (s.appearance) {
+              <p>{{ s.appearance }}</p>
+            }
+            @if (record()?.build?.notes; as notas) {
+              <p class="muted">{{ notas }}</p>
+            }
+          </div>
+        }
+        </app-accordion>
+      }
     </section>
   </div>
 
@@ -802,7 +876,21 @@
           <span class="tag">desarmado</span>
         }
       </button>
-      <span class="mod">{{ signed(st.attack.total) }}</span>
+      <!--
+        Los tres ataques del turno: el segundo y el tercero ya traen restado el
+        multiple attack penalty (menor si el arma es agile).
+      -->
+      <span class="mod ataques">
+        <button class="skill-mod" title="Primer ataque del turno" (click)="rollStrike(st)">
+          {{ signed(st.attack.total) }}
+        </button>
+        <button class="skill-mod map" title="Segundo ataque del turno" (click)="rollStrike(st, 2)">
+          {{ signed(st.attack.total + mapPenalty(st, 2)) }}
+        </button>
+        <button class="skill-mod map" title="Tercer ataque del turno" (click)="rollStrike(st, 3)">
+          {{ signed(st.attack.total + mapPenalty(st, 3)) }}
+        </button>
+      </span>
       <span class="muted dmg">
         {{ st.damageDice }}{{ st.damage.total !== 0 ? signed(st.damage.total) : '' }} {{ st.damageType }}
         @if (st.fatal) {
