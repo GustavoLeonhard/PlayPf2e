@@ -1197,3 +1197,27 @@
   border: 1px solid var(--border);
   padding: 0.15rem 0.4rem;
 }
+
+/* ---------------------------------------------------------------- visión */
+
+.vision-select {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.15rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* -------------------------------------------------- dotes fuera de nivel */
+
+.feat-row {
+  align-items: baseline;
+}
+
+.feat-group .add-item {
+  margin-top: 0.4rem;
+}

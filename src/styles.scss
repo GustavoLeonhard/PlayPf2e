@@ -122,6 +122,11 @@ textarea {
   color: var(--muted);
 }
 
+/*
+ * Varios .tag son <button> (para quitar un idioma, por ejemplo). Sin el reset
+ * de fondo y borde, el navegador les pone su cromado gris de sistema encima:
+ * mismo problema que tuvieron los .spell-name.
+ */
 .tag {
   display: inline-block;
   padding: 0.1rem 0.45rem;
@@ -129,6 +134,7 @@ textarea {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  background: none;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted);

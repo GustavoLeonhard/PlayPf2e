@@ -110,9 +110,16 @@
 
       <div class="card mini">
         <span class="label muted">Visión</span>
-        <span class="value static vision">
-          {{ s.vision === 'darkvision' ? 'Darkvision' : s.vision === 'low-light-vision' ? 'Low-light' : 'Normal' }}
-        </span>
+        <select
+          class="vision-select"
+          [value]="record()?.build?.visionOverride ?? 'ancestria'"
+          (change)="setVision($any($event.target).value)"
+        >
+          <option value="ancestria">Según tu ancestría ({{ visionLabel(ancestryVision()) }})</option>
+          <option value="normal">Normal</option>
+          <option value="low-light-vision">Low-light</option>
+          <option value="darkvision">Darkvision</option>
+        </select>
       </div>
 
       <div class="card mini idiomas" [class.editando]="editingLanguages()">
@@ -363,7 +370,7 @@
 
       <app-accordion titulo="Rasgos y dotes" [inicial]="false">
         <div class="rejilla">
-        @for (grupo of featGroups(); track grupo.label) {
+        @for (grupo of featGroups(); track grupo.key) {
           <div class="feat-group">
             <h3 class="muted">{{ grupo.label }}</h3>
             @for (f of grupo.items; track f.name + f.level) {
@@ -377,7 +384,44 @@
                   }
                 </span>
                 <span class="muted">nv {{ f.level }}</span>
+                @if (f.esDote) {
+                  <button class="rank-btn" title="Sacar esta dote" (click)="quitarDote(f)">quitar</button>
+                }
               </div>
+            } @empty {
+              <p class="muted small">Nada todavía.</p>
+            }
+
+            <!--
+              Agregar una dote fuera del subir de nivel: un tomo, un boon, algo
+              que decidió el máster en la mesa. "Adicionales" es a propósito una
+              lista sin filtrar por categoría ni por clase/ancestría.
+            -->
+            @if (agregandoDote() === grupo.key) {
+              <div class="add-item">
+                <label>
+                  Buscar
+                  <input
+                    type="search"
+                    placeholder="nombre de la dote…"
+                    [value]="doteSearch()"
+                    (input)="doteSearch.set($any($event.target).value)"
+                  />
+                </label>
+                @for (dote of opcionesDote(grupo.key); track dote.id) {
+                  <div class="inv-row">
+                    <span class="inv-name">{{ dote.name }}</span>
+                    <span class="inv-actions">
+                      <button class="rank-btn" (click)="agregarDote(grupo.key, dote.id)">agregar</button>
+                    </span>
+                  </div>
+                } @empty {
+                  <p class="muted small">Nada con ese nombre en esta categoría, a este nivel.</p>
+                }
+                <button class="btn ghost" (click)="agregandoDote.set(null); doteSearch.set('')">Cerrar</button>
+              </div>
+            } @else {
+              <button class="btn ghost" (click)="agregandoDote.set(grupo.key)">+ Agregar</button>
             }
           </div>
         }
@@ -494,12 +538,16 @@
             }
 
             @if (editingDefense() === 'armor') {
+              <!--
+                Prerellenado con lo que la armadura tiene AHORA (base, o lo que ya
+                personalizaste): así editás un solo campo sin retipear el resto.
+              -->
               <div class="weapon-editor">
                 <label>
                   Nombre
                   <input
                     type="text"
-                    [value]="customOf(armadura.inventoryIndex).name ?? ''"
+                    [value]="customOf(armadura.inventoryIndex).name ?? armadura.name"
                     (change)="saveCustomItem(armadura.inventoryIndex, { name: $any($event.target).value })"
                   />
                 </label>
@@ -509,7 +557,7 @@
                     Bonus de CA
                     <input
                       type="number"
-                      [value]="customOf(armadura.inventoryIndex).acBonus ?? ''"
+                      [value]="customOf(armadura.inventoryIndex).acBonus ?? armadura.acBonus"
                       (change)="saveCustomItem(armadura.inventoryIndex, { acBonus: numero($any($event.target).value) })"
                     />
                   </label>
@@ -517,7 +565,8 @@
                     Tope de Destreza
                     <input
                       type="number"
-                      [value]="customOf(armadura.inventoryIndex).dexCap ?? ''"
+                      placeholder="sin tope"
+                      [value]="customOf(armadura.inventoryIndex).dexCap ?? armadura.dexCap ?? ''"
                       (change)="saveCustomItem(armadura.inventoryIndex, { dexCap: numero($any($event.target).value) })"
                     />
                   </label>
@@ -525,7 +574,7 @@
                     Fuerza requerida
                     <input
                       type="number"
-                      [value]="customOf(armadura.inventoryIndex).strength ?? ''"
+                      [value]="customOf(armadura.inventoryIndex).strength ?? armadura.strength ?? ''"
                       (change)="saveCustomItem(armadura.inventoryIndex, { strength: numero($any($event.target).value) })"
                     />
                   </label>
@@ -536,7 +585,7 @@
                     Penalidad de chequeos
                     <input
                       type="number"
-                      [value]="customOf(armadura.inventoryIndex).checkPenalty ?? ''"
+                      [value]="customOf(armadura.inventoryIndex).checkPenalty ?? armadura.checkPenalty"
                       (change)="saveCustomItem(armadura.inventoryIndex, { checkPenalty: numero($any($event.target).value) })"
                     />
                   </label>
@@ -544,7 +593,7 @@
                     Penalidad de velocidad
                     <input
                       type="number"
-                      [value]="customOf(armadura.inventoryIndex).speedPenalty ?? ''"
+                      [value]="customOf(armadura.inventoryIndex).speedPenalty ?? armadura.speedPenalty"
                       (change)="saveCustomItem(armadura.inventoryIndex, { speedPenalty: numero($any($event.target).value) })"
                     />
                   </label>
@@ -603,7 +652,7 @@
                   Nombre
                   <input
                     type="text"
-                    [value]="customOf(escudo.inventoryIndex).name ?? ''"
+                    [value]="customOf(escudo.inventoryIndex).name ?? escudo.name"
                     (change)="saveCustomItem(escudo.inventoryIndex, { name: $any($event.target).value })"
                   />
                 </label>
@@ -613,7 +662,7 @@
                     Bonus de CA
                     <input
                       type="number"
-                      [value]="customOf(escudo.inventoryIndex).acBonus ?? ''"
+                      [value]="customOf(escudo.inventoryIndex).acBonus ?? escudo.acBonus"
                       (change)="saveCustomItem(escudo.inventoryIndex, { acBonus: numero($any($event.target).value) })"
                     />
                   </label>
@@ -621,7 +670,7 @@
                     Hardness
                     <input
                       type="number"
-                      [value]="customOf(escudo.inventoryIndex).hardness ?? ''"
+                      [value]="customOf(escudo.inventoryIndex).hardness ?? escudo.hardness"
                       (change)="saveCustomItem(escudo.inventoryIndex, { hardness: numero($any($event.target).value) })"
                     />
                   </label>
@@ -629,7 +678,7 @@
                     HP máximos
                     <input
                       type="number"
-                      [value]="customOf(escudo.inventoryIndex).maxHp ?? ''"
+                      [value]="customOf(escudo.inventoryIndex).maxHp ?? escudo.maxHp"
                       (change)="saveCustomItem(escudo.inventoryIndex, { maxHp: numero($any($event.target).value) })"
                     />
                   </label>
@@ -677,6 +726,7 @@
           <p class="muted small">Nada equipado.</p>
         }
         </div>
+        <ng-container [ngTemplateOutlet]="agregarNaturalTpl" [ngTemplateOutletContext]="{ $implicit: false }" />
       </app-accordion>
 
       <app-accordion titulo="A distancia" [subtitulo]="ataques(rangedStrikes().length)">
@@ -700,6 +750,7 @@
           <p class="muted small">No tenés armas a distancia equipadas.</p>
         }
         </div>
+        <ng-container [ngTemplateOutlet]="agregarNaturalTpl" [ngTemplateOutletContext]="{ $implicit: true }" />
       </app-accordion>
 
       @if (s.spellcasting; as sc) {
@@ -1219,6 +1270,10 @@
           >
             personalizar
           </button>
+        } @else if (st.naturalId) {
+          <button class="w-ok" (click)="editingNatural.set(editingNatural() === st.naturalId ? null : st.naturalId)">
+            personalizar
+          </button>
         }
       </span>
 
@@ -1240,12 +1295,17 @@
       }
 
       @if (st.inventoryIndex >= 0 && editingWeapon() === st.inventoryIndex) {
+        <!--
+          Los campos arrancan con el valor actual del arma (base, o lo que ya
+          hayas personalizado): así solo tocás lo que querés cambiar, no hace
+          falta retipear todo lo demás.
+        -->
         <div class="weapon-editor">
           <label>
             Nombre
             <input
               type="text"
-              [value]="customOf(st.inventoryIndex).name ?? ''"
+              [value]="customOf(st.inventoryIndex).name ?? st.name"
               (change)="saveCustomItem(st.inventoryIndex, { name: $any($event.target).value })"
             />
           </label>
@@ -1256,7 +1316,7 @@
               <input
                 type="number"
                 min="1"
-                [value]="customOf(st.inventoryIndex).damageDice ?? ''"
+                [value]="customOf(st.inventoryIndex).damageDice ?? diceCountOf(st)"
                 (change)="saveCustomItem(st.inventoryIndex, { damageDice: numero($any($event.target).value) })"
               />
             </label>
@@ -1265,7 +1325,7 @@
               <input
                 type="text"
                 placeholder="d8"
-                [value]="customOf(st.inventoryIndex).damageDie ?? ''"
+                [value]="customOf(st.inventoryIndex).damageDie ?? dieOf(st)"
                 (change)="saveCustomItem(st.inventoryIndex, { damageDie: $any($event.target).value })"
               />
             </label>
@@ -1274,8 +1334,29 @@
               <input
                 type="text"
                 placeholder="fire"
-                [value]="customOf(st.inventoryIndex).damageType ?? ''"
+                [value]="customOf(st.inventoryIndex).damageType ?? st.damageType"
                 (change)="saveCustomItem(st.inventoryIndex, { damageType: $any($event.target).value })"
+              />
+            </label>
+          </div>
+
+          <div class="editor-row">
+            <label>
+              Fatal <small class="muted">(dado al crítico)</small>
+              <input
+                type="text"
+                placeholder="sin fatal"
+                [value]="customOf(st.inventoryIndex).fatal ?? st.fatal ?? ''"
+                (change)="saveCustomItem(st.inventoryIndex, { fatal: normalizarDado($any($event.target).value) })"
+              />
+            </label>
+            <label>
+              Deadly <small class="muted">(dado extra al crítico)</small>
+              <input
+                type="text"
+                placeholder="sin deadly"
+                [value]="customOf(st.inventoryIndex).deadly ?? st.deadly ?? ''"
+                (change)="saveCustomItem(st.inventoryIndex, { deadly: normalizarDado($any($event.target).value) })"
               />
             </label>
           </div>
@@ -1298,7 +1379,7 @@
               />
             </label>
             <label>
-              Traits
+              Traits adicionales
               <input
                 type="text"
                 placeholder="reach, finesse"
@@ -1325,7 +1406,179 @@
           </div>
         </div>
       }
+
+      <!--
+        Garras, colmillos, púas: no salen del inventario (no pesan, no se
+        compran), así que se editan y se borran directo, sin "volver al
+        original" — acá el ataque ES lo que escribiste.
+      -->
+      @if (st.naturalId && editingNatural() === st.naturalId) {
+        <div class="weapon-editor">
+          <label>
+            Nombre
+            <input
+              type="text"
+              [value]="naturalOf(st.naturalId)?.name ?? ''"
+              (change)="saveNatural(st.naturalId, { name: $any($event.target).value })"
+            />
+          </label>
+
+          <div class="editor-row">
+            <label>
+              Alcance
+              <select
+                [value]="naturalOf(st.naturalId)?.ranged ? 'ranged' : 'melee'"
+                (change)="saveNatural(st.naturalId, { ranged: $any($event.target).value === 'ranged' })"
+              >
+                <option value="melee">Cuerpo a cuerpo</option>
+                <option value="ranged">A distancia</option>
+              </select>
+            </label>
+            <label>
+              Dados
+              <input
+                type="number"
+                min="1"
+                [value]="naturalOf(st.naturalId)?.damageDice ?? 1"
+                (change)="saveNatural(st.naturalId, { damageDice: numero($any($event.target).value) ?? 1 })"
+              />
+            </label>
+            <label>
+              Dado
+              <input
+                type="text"
+                placeholder="d6"
+                [value]="naturalOf(st.naturalId)?.damageDie ?? ''"
+                (change)="saveNatural(st.naturalId, { damageDie: $any($event.target).value })"
+              />
+            </label>
+            <label>
+              Tipo
+              <input
+                type="text"
+                placeholder="piercing"
+                [value]="naturalOf(st.naturalId)?.damageType ?? ''"
+                (change)="saveNatural(st.naturalId, { damageType: $any($event.target).value })"
+              />
+            </label>
+          </div>
+
+          <div class="editor-row">
+            <label>
+              Fatal <small class="muted">(dado al crítico)</small>
+              <input
+                type="text"
+                placeholder="sin fatal"
+                [value]="naturalOf(st.naturalId)?.fatal ?? ''"
+                (change)="saveNatural(st.naturalId, { fatal: normalizarDado($any($event.target).value) })"
+              />
+            </label>
+            <label>
+              Deadly <small class="muted">(dado extra al crítico)</small>
+              <input
+                type="text"
+                placeholder="sin deadly"
+                [value]="naturalOf(st.naturalId)?.deadly ?? ''"
+                (change)="saveNatural(st.naturalId, { deadly: normalizarDado($any($event.target).value) })"
+              />
+            </label>
+          </div>
+
+          <div class="editor-row">
+            <label>
+              Bonus ataque
+              <input
+                type="number"
+                [value]="naturalOf(st.naturalId)?.bonusAttack ?? ''"
+                (change)="saveNatural(st.naturalId, { bonusAttack: numero($any($event.target).value) })"
+              />
+            </label>
+            <label>
+              Bonus daño
+              <input
+                type="number"
+                [value]="naturalOf(st.naturalId)?.bonusDamage ?? ''"
+                (change)="saveNatural(st.naturalId, { bonusDamage: numero($any($event.target).value) })"
+              />
+            </label>
+            <label>
+              Traits <small class="muted">(agile, finesse, reach…)</small>
+              <input
+                type="text"
+                placeholder="agile, finesse"
+                [value]="naturalTraitsText(st.naturalId)"
+                (change)="saveNaturalTraits(st.naturalId, $any($event.target).value)"
+              />
+            </label>
+          </div>
+
+          <label>
+            Notas
+            <textarea
+              rows="2"
+              [value]="naturalOf(st.naturalId)?.notes ?? ''"
+              (change)="saveNatural(st.naturalId, { notes: $any($event.target).value })"
+            ></textarea>
+          </label>
+
+          <div class="editor-actions">
+            <button class="btn" (click)="editingNatural.set(null)">Listo</button>
+            <button class="btn ghost danger" (click)="quitarAtaqueNatural(st.naturalId); editingNatural.set(null)">
+              Eliminar
+            </button>
+          </div>
+        </div>
+      }
     </div>
+  </ng-template>
+
+  <!--
+    Garras, colmillos, púas que se disparan: no son un objeto de la mochila, así
+    que no hace falta inventariar nada para pelear con ellos. La misma plantilla
+    sirve para las dos secciones; solo cambia si el ataque nace a distancia.
+  -->
+  <ng-template #agregarNaturalTpl let-ranged>
+    @if (addingNatural() === (ranged ? 'ranged' : 'melee')) {
+      <div class="add-item">
+        <div class="editor-row">
+          <label>
+            Nombre
+            <input #nombreNat type="text" placeholder="Garra, colmillo, púa…" />
+          </label>
+          <label>
+            Dados
+            <input #dadosNat type="number" min="1" value="1" />
+          </label>
+          <label>
+            Dado
+            <input #dadoNat type="text" placeholder="d6" />
+          </label>
+          <label>
+            Tipo
+            <input #tipoNat type="text" placeholder="piercing" />
+          </label>
+        </div>
+        <div class="editor-actions">
+          <button
+            class="btn"
+            (click)="
+              agregarAtaqueNatural(nombreNat.value, ranged, dadosNat.value, dadoNat.value, tipoNat.value);
+              nombreNat.value = '';
+              dadosNat.value = '1';
+              dadoNat.value = '';
+              tipoNat.value = ''
+            "
+          >
+            Agregar
+          </button>
+          <button class="btn ghost" (click)="addingNatural.set(null)">Cancelar</button>
+        </div>
+      </div>
+    } @else {
+      <button class="btn ghost" (click)="addingNatural.set(ranged ? 'ranged' : 'melee')">
+        + Agregar ataque natural
+      </button>
+    }
   </ng-template>
 
   <!--

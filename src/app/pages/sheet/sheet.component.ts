@@ -2,15 +2,24 @@ import { Component, computed, inject, input, signal, type OnInit } from '@angula
 import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
-import { emptyState, type CharacterRecord, type CustomItem, type Favorite } from '../../core/models/character.model';
+import {
+  emptyState,
+  type CharacterRecord,
+  type Choice,
+  type ChoiceSlot,
+  type CustomItem,
+  type Favorite,
+  type NaturalWeapon,
+} from '../../core/models/character.model';
 import { ABILITIES, ABILITY_NAMES, PROFICIENCY_NAMES } from '../../core/models/content.model';
-import type { Equipment, Spell } from '../../core/models/content.model';
+import type { Equipment, Feat, Spell } from '../../core/models/content.model';
+import { archetypeFeatAvailable, isArchetypeFeat, ownedDedications } from '../../core/rules/archetypes';
 import { CONDITION_BY_ID } from '../../core/rules/conditions';
 import { criticalTotal, rollFormula, type DiceRoll } from '../../core/rules/dice';
 import { COMMON_LANGUAGES, UNCOMMON_LANGUAGES, languageLabel } from '../../core/rules/languages';
 import { formatCp, priceToCp, splitCp } from '../../core/rules/money';
 import { castableRanks, scaledDamage } from '../../core/rules/spellcasting';
-import { computeCharacter, type ContentIndex, type StrikeSheet } from '../../core/rules/character.engine';
+import { computeCharacter, type ContentIndex, type FeatSource, type StrikeSheet } from '../../core/rules/character.engine';
 import { signed, type Stat } from '../../core/rules/modifiers';
 import { CharacterService } from '../../core/services/character.service';
 import { AccordionComponent } from '../../shared/accordion.component';
@@ -106,6 +115,7 @@ export class SheetComponent implements OnInit {
       record.build.languages ??= [];
       record.build.favorites ??= [];
       record.build.inventory ??= [];
+      record.build.naturalWeapons ??= [];
       record.build.acknowledgedWarnings ??= [];
       if (!record.state.hp.current) {
         const computed = computeCharacter(record.build, record.state, index);
@@ -132,7 +142,7 @@ export class SheetComponent implements OnInit {
     const sheet = this.sheet();
     if (!sheet) return [];
 
-    const etiquetas: { key: string; label: string }[] = [
+    const etiquetas: { key: FeatSource; label: string }[] = [
       { key: 'ancestry', label: 'Ancestría' },
       { key: 'class', label: 'Clase' },
       { key: 'skill', label: 'Habilidad' },
@@ -140,18 +150,28 @@ export class SheetComponent implements OnInit {
       { key: 'bonus', label: 'Adicionales' },
     ];
 
+    // Mismo shape para las dos fuentes (con `slot: null` de relleno en los
+    // rasgos estructurales) para no necesitar angostar un union en la plantilla:
+    // el `esDote` alcanza para decidir si se puede sacar o no.
     const todos = [
-      ...sheet.features.map((f) => ({ ...f, esDote: false })),
-      // El id viaja para poder buscar la descripción del manual.
-      ...sheet.feats.map((f) => ({ name: f.name, level: f.level, source: f.source, id: f.id, esDote: true })),
+      ...sheet.features.map((f) => ({ ...f, slot: null as string | null, esDote: false as const })),
+      ...sheet.feats.map((f) => ({
+        name: f.name,
+        level: f.level,
+        source: f.source,
+        id: f.id as string | null,
+        slot: f.slot as string | null,
+        esDote: true as const,
+      })),
     ];
 
-    return etiquetas
-      .map(({ key, label }) => ({
-        label,
-        items: todos.filter((f) => f.source === key).sort((a, b) => a.level - b.level),
-      }))
-      .filter((g) => g.items.length);
+    // Las cinco categorías se muestran siempre, aunque estén vacías: son
+    // editables, y si se ocultan hasta tener algo no hay dónde apretar "+".
+    return etiquetas.map(({ key, label }) => ({
+      key,
+      label,
+      items: todos.filter((f) => f.source === key).sort((a, b) => a.level - b.level),
+    }));
   });
 
   // ------------------------------------------------------------- favoritos
@@ -261,6 +281,97 @@ export class SheetComponent implements OnInit {
     const limpio = nombre.trim().toLowerCase();
     if (!limpio || this.hasLanguage(limpio)) return;
     await this.toggleLanguage(limpio);
+  }
+
+  // ------------------------------------------------------------------ visión
+
+  /** La visión que da la ancestría sola, sin el override: para mostrarla en la opción del selector. */
+  readonly ancestryVision = computed(() => {
+    const slug = this.record()?.build.ancestry;
+    const index = this.index();
+    return (slug && index?.ancestryBySlug.get(slug)?.vision) || 'normal';
+  });
+
+  visionLabel = (v: string) => (v === 'darkvision' ? 'Darkvision' : v === 'low-light-vision' ? 'Low-light' : 'Normal');
+
+  /**
+   * Por defecto sale de la ancestría; esto la pisa. Sirve para lo que la app no
+   * modela solo (Ganzi con darkvision, perder un ojo en la mesa) sin tener que
+   * inventar un rasgo falso para forzar el cálculo.
+   */
+  async setVision(valor: string) {
+    const record = this.record();
+    if (!record) return;
+    record.build.visionOverride = valor === 'ancestria' ? null : valor;
+    await this.guardar(record);
+  }
+
+  // --------------------------------------------------------- rasgos y dotes
+
+  /**
+   * Agregar o quitar una dote fuera del subir de nivel: un tomo, un boon de
+   * facción, algo que decide el máster en la mesa. Reusa el mismo criterio que
+   * el asistente al ofrecer dotes (categoría, nivel, trait de clase/ancestría,
+   * arquetipos), salvo en "Adicionales", que es a propósito una lista abierta.
+   */
+  readonly agregandoDote = signal<FeatSource | null>(null);
+  readonly doteSearch = signal('');
+
+  private static readonly SLOT_DE_SOURCE: Record<FeatSource, ChoiceSlot> = {
+    ancestry: 'ancestryFeat',
+    class: 'classFeat',
+    skill: 'skillFeat',
+    general: 'generalFeat',
+    bonus: 'bonusFeat',
+  };
+
+  opcionesDote(source: FeatSource): Feat[] {
+    const index = this.index();
+    const build = this.record()?.build;
+    if (!index || !build) return [];
+
+    const busqueda = this.doteSearch().toLowerCase().trim();
+    const yaTomadas = new Set(build.choices.map((c) => c.id));
+    const owned = ownedDedications(
+      build.choices.map((c) => (c.id ? index.featById.get(c.id) : undefined)).filter((f): f is Feat => !!f),
+    );
+    const trait = source === 'class' ? build.class : source === 'ancestry' ? build.ancestry : null;
+
+    return [...index.featById.values()]
+      .filter((f) => source === 'bonus' || f.category === source)
+      .filter((f) => f.level <= build.level)
+      .filter((f) => !f.onlyLevel1 || build.level === 1)
+      .filter((f) => {
+        if (source === 'general' || source === 'skill' || source === 'bonus') return true;
+        if (source === 'class' && isArchetypeFeat(f)) return archetypeFeatAvailable(f, owned);
+        return !trait || f.traits.includes(trait);
+      })
+      .filter((f) => f.maxTakable > 1 || !yaTomadas.has(f.id))
+      .filter((f) => !busqueda || f.name.toLowerCase().includes(busqueda))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 40);
+  }
+
+  async agregarDote(source: FeatSource, featId: string | null) {
+    const record = this.record();
+    if (!record || !featId) return;
+
+    const choice: Choice = { level: record.build.level, slot: SheetComponent.SLOT_DE_SOURCE[source], id: featId };
+    record.build.choices = [...record.build.choices, choice];
+    this.agregandoDote.set(null);
+    this.doteSearch.set('');
+    await this.guardar(record);
+  }
+
+  /** Solo se puede sacar una dote que vino de una Choice (no un rasgo estructural de la clase). */
+  async quitarDote(f: { level: number; slot: string | null; id: string | null }) {
+    const record = this.record();
+    if (!record || !f.slot || !f.id) return;
+
+    const at = record.build.choices.findIndex((c) => c.level === f.level && c.slot === f.slot && c.id === f.id);
+    if (at < 0) return;
+    record.build.choices = record.build.choices.filter((_, i) => i !== at);
+    await this.guardar(record);
   }
 
   // ---------------------------------------------------------------- retrato
@@ -1069,6 +1180,22 @@ export class SheetComponent implements OnInit {
   }
 
   /**
+   * Los dos números del daño ("1" y "d8") sueltos, para las dos casillas del
+   * editor. `st.damageDice` ya viene como el string armado ("1d8"); separarlo
+   * acá evita tener que exponer los crudos desde el motor solo para esto.
+   */
+  private diceDe(st: StrikeSheet): { dice: number; die: string } | null {
+    const m = st.damageDice.match(/^(\d+)(d\d+)$/);
+    return m ? { dice: Number(m[1]), die: m[2] } : null;
+  }
+
+  diceCountOf = (st: StrikeSheet): number | '' => this.diceDe(st)?.dice ?? '';
+  dieOf = (st: StrikeSheet): string => this.diceDe(st)?.die ?? '';
+
+  /** El dado de crítico se escribe como "d10"; en minúscula y sin espacios. */
+  normalizarDado = (valor: string): string => valor.trim().toLowerCase();
+
+  /**
    * Guarda las diferencias respecto del arma base, y de paso una foto del arma
    * original: así el arma sobrevive aunque se pierda la referencia al dataset.
    */
@@ -1123,6 +1250,8 @@ export class SheetComponent implements OnInit {
       'strength',
       'hardness',
       'maxHp',
+      'fatal',
+      'deadly',
     ] as const) {
       const valor = custom[clave];
       if (valor === '' || valor === null || (typeof valor === 'number' && Number.isNaN(valor))) delete custom[clave];
@@ -1163,6 +1292,65 @@ export class SheetComponent implements OnInit {
 
   readonly signed = signed;
   readonly languageLabel = languageLabel;
+
+  // -------------------------------------------------------- ataques naturales
+
+  /**
+   * Garras, colmillos, púas que se disparan: no son un objeto de la mochila, así
+   * que viven en `build.naturalWeapons` en vez de en el inventario. Usan la
+   * misma proficiencia unarmed que el puño.
+   */
+  readonly addingNatural = signal<'melee' | 'ranged' | null>(null);
+  readonly editingNatural = signal<string | null>(null);
+
+  naturalOf(id: string): NaturalWeapon | null {
+    return (this.record()?.build.naturalWeapons ?? []).find((n) => n.id === id) ?? null;
+  }
+
+  async agregarAtaqueNatural(nombre: string, ranged: boolean, dados: string, dado: string, tipo: string) {
+    const record = this.record();
+    if (!record || !nombre.trim() || !dado.trim() || !tipo.trim()) return;
+
+    const nuevo: NaturalWeapon = {
+      id: crypto.randomUUID(),
+      name: nombre.trim(),
+      ranged,
+      damageDice: Math.max(1, Math.round(Number(dados)) || 1),
+      damageDie: dado.trim().toLowerCase(),
+      damageType: tipo.trim().toLowerCase(),
+      traits: [],
+    };
+
+    record.build.naturalWeapons = [...(record.build.naturalWeapons ?? []), nuevo];
+    this.addingNatural.set(null);
+    await this.guardar(record);
+  }
+
+  async quitarAtaqueNatural(id: string) {
+    const record = this.record();
+    if (!record) return;
+    record.build.naturalWeapons = (record.build.naturalWeapons ?? []).filter((n) => n.id !== id);
+    await this.guardar(record);
+  }
+
+  async saveNatural(id: string, campos: Partial<NaturalWeapon>) {
+    const record = this.record();
+    if (!record) return;
+    record.build.naturalWeapons = (record.build.naturalWeapons ?? []).map((n) =>
+      n.id === id ? { ...n, ...campos } : n,
+    );
+    await this.guardar(record);
+  }
+
+  naturalTraitsText = (id: string) => (this.naturalOf(id)?.traits ?? []).join(', ');
+
+  saveNaturalTraits(id: string, texto: string) {
+    const traits = texto
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    void this.saveNatural(id, { traits });
+  }
 
   // ----------------------------------------------------------- estado (HP)
 

@@ -185,6 +185,8 @@ export interface StrikeSheet {
   deadly: string | null;
   /** Posicion en build.inventory: la UI la usa para editar el arma. -1 si es el puño. */
   inventoryIndex: number;
+  /** Si es un ataque natural (garras, colmillos…), su id en build.naturalWeapons. */
+  naturalId: string | null;
   /** La hoja separa melee y ranged en dos secciones. */
   ranged: boolean;
   unarmed: boolean;
@@ -954,6 +956,54 @@ export function computeCharacter(
 
 
   //
+  // Ataques naturales: garras, colmillos, púas que se disparan. No salen del
+  // inventario (no pesan, no se compran), así que se arman con el mismo molde
+  // que el puño y entran al pipeline con un CustomItem que solo trae lo que el
+  // jugador cargó (bonus, fatal/deadly, notas).
+  const armasNaturales = (build.naturalWeapons ?? []).map((nw, i) => {
+    const weapon: Equipment = {
+      id: `natural:${nw.id}`,
+      slug: '',
+      name: nw.name,
+      // El unarmed va siempre: es lo que hace que use tu proficiencia unarmed.
+      traits: [...nw.traits, 'unarmed'],
+      tags: [],
+      rarity: 'common',
+      source: 'Ataque natural',
+      description: '',
+      type: 'weapon',
+      level: 0,
+      price: null,
+      bulk: 0,
+      usage: '',
+      damage: { dice: nw.damageDice, die: nw.damageDie, damageType: nw.damageType },
+      // El "range" solo importa acá para que el motor lo detecte como a distancia;
+      // no hay UI que muestre una distancia en pies para ningún arma.
+      range: nw.ranged ? 30 : null,
+      reload: null,
+      category: 'unarmed',
+      group: null,
+      acBonus: null,
+      dexCap: null,
+      strength: null,
+      checkPenalty: null,
+      speedPenalty: null,
+      hardness: null,
+      maxHp: null,
+    } as Equipment;
+
+    // El tag "custom" de la hoja significa "esto difiere del catálogo", y un
+    // ataque natural no tiene catálogo del que diferir. Solo se marca si de
+    // verdad hay algo extra cargado (fatal, un bonus, notas).
+    const extra = { fatal: nw.fatal, deadly: nw.deadly, bonusAttack: nw.bonusAttack, bonusDamage: nw.bonusDamage, notes: nw.notes };
+    const custom: CustomItem | undefined = Object.values(extra).some((v) => v != null && v !== '') ? extra : undefined;
+
+    // Índices negativos por debajo del -1 del puño: nunca chocan con el
+    // inventario real (siempre >= 0) ni con el puño.
+    return { weapon, custom, inventoryIndex: -2 - i, naturalId: nw.id };
+  });
+
+  //
   // Un arma personalizada es la del dataset con las diferencias del master encima.
   // Si la referencia no resuelve, se usa la foto guardada dentro del custom.
   const armasEquipadas = build.inventory
@@ -1013,10 +1063,11 @@ export function computeCharacter(
     .filter((x) => x.weapon.type === 'weapon');
 
   const strikes: StrikeSheet[] = [
-    { weapon: PUÑO, custom: undefined as CustomItem | undefined, inventoryIndex: -1 },
-    ...armasEquipadas,
+    { weapon: PUÑO, custom: undefined as CustomItem | undefined, inventoryIndex: -1, naturalId: null },
+    ...armasNaturales,
+    ...armasEquipadas.map((x) => ({ ...x, naturalId: null as string | null })),
   ]
-    .map(({ weapon, custom, inventoryIndex }) => {
+    .map(({ weapon, custom, inventoryIndex, naturalId }) => {
       const keys = attackProficiencyKeys(weapon);
       const rank = rankFor(prof, keys);
       const ranged = weapon.range != null || weapon.traits.some((t) => t.startsWith('range') || t === 'thrown');
@@ -1062,10 +1113,12 @@ export function computeCharacter(
         ranged,
         unarmed: weapon.category === 'unarmed',
         // `fatal-aim` es fatal solo si empuñás el arma a dos manos; se trata igual
-        // y la diferencia queda para el jugador.
-        fatal: dadoDeTrait('fatal'),
-        deadly: dadoDeTrait('deadly'),
+        // y la diferencia queda para el jugador. El master puede pisar el dado del
+        // trait (o ponerle uno a un arma que no lo tenía) desde el editor.
+        fatal: custom?.fatal ?? dadoDeTrait('fatal'),
+        deadly: custom?.deadly ?? dadoDeTrait('deadly'),
         inventoryIndex,
+        naturalId,
         notes: custom?.notes ?? null,
         custom: !!custom,
         attack,
@@ -1302,7 +1355,9 @@ export function computeCharacter(
     initiative: { options: initiativeOptions, conditional: initiativeConditional },
     money: { startingCp: STARTING_MONEY_CP, spentCp, remainingCp: STARTING_MONEY_CP - spentCp },
     bulk: { carried: Math.round(carriedBulk * 10) / 10, encumberedAt, max: maxBulk, encumbered },
-    vision: ancestry?.vision ?? 'normal',
+    // El master puede pisar la visión de la ancestría (una maldición, un rasgo
+    // que no está modelado, un ojo perdido en la mesa).
+    vision: build.visionOverride ?? ancestry?.vision ?? 'normal',
     shield: shieldSheet,
     age: build.age ?? '',
     appearance: build.appearance ?? '',

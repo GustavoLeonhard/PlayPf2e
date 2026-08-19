@@ -49,6 +49,27 @@ export interface Favorite {
   label: string;
 }
 
+/**
+ * Un ataque natural: garras, colmillos, púas que se disparan… No es un objeto de
+ * la mochila (no pesa, no se compra ni se vende, no se "equipa"), así que vive
+ * aparte del inventario. Usa la proficiencia unarmed, igual que el puño.
+ */
+export interface NaturalWeapon {
+  id: string;
+  name: string;
+  ranged: boolean;
+  damageDice: number;
+  damageDie: string;
+  damageType: string;
+  /** Traits libres: agile, finesse, reach, sweep… (sin fatal/deadly, que van aparte) */
+  traits: string[];
+  fatal?: string | null;
+  deadly?: string | null;
+  bonusAttack?: number;
+  bonusDamage?: number;
+  notes?: string;
+}
+
 export interface InventoryItem {
   id: string;
   quantity: number;
@@ -77,6 +98,12 @@ export interface CustomItem {
   damageDice?: number;
   damageDie?: string;
   damageType?: string;
+  /**
+   * Dado de crítico. Antes solo se podían tocar metiendo "fatal-d10" a mano en
+   * el campo de traits; ahora son un campo propio, como el resto de las armas.
+   */
+  fatal?: string | null;
+  deadly?: string | null;
 
   /**
    * Armadura y escudos. Mismo criterio que las armas: lo que el máster cambió
@@ -138,6 +165,12 @@ export interface CharacterBuild {
    */
   portrait?: string;
   /**
+   * Visión: normal, low-light-vision o darkvision. Por defecto sale de la
+   * ancestría; esto pisa ese valor para cuando un rasgo, una maldición o el
+   * máster te la cambia (ej. Ganzi con darkvision, o quedar ciego a un ojo).
+   */
+  visionOverride?: string | null;
+  /**
    * Lo que el jugador quiere tener a mano arriba de todo: un ataque, una habilidad
    * o un conjuro. Guarda una referencia, no una copia: si el numero cambia, el
    * favorito lo refleja.
@@ -153,6 +186,8 @@ export interface CharacterBuild {
    */
   languages: string[];
   inventory: InventoryItem[];
+  /** Garras, colmillos, púas… ver NaturalWeapon. */
+  naturalWeapons: NaturalWeapon[];
   /** Advertencias que el usuario marcó como resueltas (por id, ver Warning). */
   acknowledgedWarnings: string[];
   notes: string;
@@ -249,6 +284,7 @@ export function emptyBuild(): CharacterBuild {
     trainedSkills: [],
     languages: [],
     inventory: [],
+    naturalWeapons: [],
     acknowledgedWarnings: [],
     notes: '',
     spellcasting: { cantrips: [], repertoire: {}, signature: {}, spellbook: [], focusSpells: [] },

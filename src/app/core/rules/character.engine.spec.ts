@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { emptyBuild, emptyState, type CharacterBuild } from '../models/character.model';
+import { emptyBuild, emptyState, type CharacterBuild, type NaturalWeapon } from '../models/character.model';
 import type {
   Ancestry,
   Background,
@@ -896,6 +896,25 @@ describe('armas personalizadas', () => {
     expect(strike.deadly).toBe('d10');
   });
 
+  /*
+   * Además del truco viejo (meter "fatal-dX" en los traits), fatal y deadly son
+   * ahora un campo propio del editor, igual que el resto de las armas.
+   */
+  it('fatal y deadly tienen su propio campo, sin pasar por los traits', () => {
+    const strike = computeCharacter(conEspada({ fatal: 'd12' }), null, content).strikes[1];
+    expect(strike.fatal).toBe('d12');
+    expect(strike.deadly).toBeNull();
+  });
+
+  it('el campo fatal pisa el que trae el arma del dataset', () => {
+    const pistola = equipment.find((e) => e.name === 'Flintlock Pistol')!;
+    const build = humanFighter();
+    // La pistola ya viene con fatal-d8; el master la homebrewea a fatal-d12.
+    build.inventory = [{ id: pistola.id, quantity: 1, equipped: true, custom: { fatal: 'd12' } as never }];
+    const strike = computeCharacter(build, null, content).strikes[1];
+    expect(strike.fatal).toBe('d12');
+  });
+
   it('las notas se muestran pero no se calculan', () => {
     const strike = computeCharacter(conEspada({ notes: 'Al critico deslumbra 1 round' }), null, content).strikes[1];
     expect(strike.notes).toBe('Al critico deslumbra 1 round');
@@ -1231,5 +1250,98 @@ describe('garbo (panache)', () => {
     expect(computeCharacter(duelista(11), null, content).speed.total - base).toBe(10);
     expect(computeCharacter(duelista(15), null, content).speed.total - base).toBe(10);
     expect(computeCharacter(duelista(19), null, content).speed.total - base).toBe(15);
+  });
+});
+
+describe('visión', () => {
+  it('sale de la ancestría por defecto', () => {
+    const dwarf = { ...humanFighter(), ancestry: 'dwarf' };
+    expect(computeCharacter(dwarf, null, content).vision).toBe('darkvision');
+  });
+
+  it('el master la puede pisar', () => {
+    const build = { ...humanFighter(), visionOverride: 'darkvision' };
+    expect(computeCharacter(build, null, content).vision).toBe('darkvision');
+  });
+});
+
+describe('ataques naturales', () => {
+  function conGarras(armas: NaturalWeapon[]) {
+    const build = humanFighter();
+    build.naturalWeapons = armas;
+    return build;
+  }
+
+  it('sin ataques naturales, la lista de strikes es solo el puño', () => {
+    const sheet = computeCharacter(conGarras([]), null, content);
+    expect(sheet.strikes).toHaveLength(1);
+    expect(sheet.strikes[0].naturalId).toBeNull();
+  });
+
+  it('un ataque natural cuerpo a cuerpo entra a la lista, con proficiencia unarmed', () => {
+    const build = conGarras([
+      {
+        id: 'garra-1',
+        name: 'Garra',
+        ranged: false,
+        damageDice: 1,
+        damageDie: 'd6',
+        damageType: 'slashing',
+        traits: ['agile'],
+      },
+    ]);
+    const sheet = computeCharacter(build, null, content);
+    const garra = sheet.strikes.find((s) => s.naturalId === 'garra-1')!;
+
+    expect(garra).toBeDefined();
+    expect(garra.ranged).toBe(false);
+    expect(garra.unarmed).toBe(true);
+    expect(garra.damageDice).toBe('1d6');
+    expect(garra.damageType).toBe('slashing');
+    // Trained en unarmed (igual que el puño), no en marcial.
+    expect(garra.proficiency).toBe(sheet.strikes[0].proficiency);
+  });
+
+  it('uno a distancia (púas que se disparan) cae en la sección ranged', () => {
+    const build = conGarras([
+      {
+        id: 'pua-1',
+        name: 'Púa',
+        ranged: true,
+        damageDice: 1,
+        damageDie: 'd4',
+        damageType: 'piercing',
+        traits: [],
+      },
+    ]);
+    const sheet = computeCharacter(build, null, content);
+    const pua = sheet.strikes.find((s) => s.naturalId === 'pua-1')!;
+    expect(pua.ranged).toBe(true);
+    // A distancia usa Destreza, no Fuerza: sin Fuerza sumada al daño.
+    expect(pua.damage.breakdown.some((m) => m.source === 'Fuerza')).toBe(false);
+  });
+
+  it('fatal y bonus de un ataque natural entran igual que en un arma', () => {
+    const build = conGarras([
+      {
+        id: 'colmillo-1',
+        name: 'Colmillo',
+        ranged: false,
+        damageDice: 1,
+        damageDie: 'd8',
+        damageType: 'piercing',
+        traits: [],
+        fatal: 'd10',
+        bonusAttack: 1,
+        bonusDamage: 2,
+      },
+    ]);
+    const sheet = computeCharacter(build, null, content);
+    const colmillo = sheet.strikes.find((s) => s.naturalId === 'colmillo-1')!;
+    expect(colmillo.fatal).toBe('d10');
+
+    const sinExtra = computeCharacter(conGarras([{ ...build.naturalWeapons[0], bonusAttack: 0, bonusDamage: 0 }]), null, content).strikes.find((s) => s.naturalId === 'colmillo-1')!;
+    expect(colmillo.attack.total - sinExtra.attack.total).toBe(1);
+    expect(colmillo.damage.total - sinExtra.damage.total).toBe(2);
   });
 });

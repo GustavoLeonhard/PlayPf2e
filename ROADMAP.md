@@ -124,21 +124,40 @@ El inventario ya no es solo de la creación: se maneja durante la partida.
 - [x] **Shield Block**: absorbe daño hasta su hardness y el resto se lo llevan los dos
 - [x] Reparar
 
-La armadura ya estaba completa: bonus a la CA, tope de Destreza, penalidad de chequeos (que se
-ignora si cumplís el requisito de Fuerza) y penalidad de velocidad.
+La armadura tiene bonus a la CA, tope de Destreza, penalidad de chequeos (que se ignora si
+cumplís el requisito de Fuerza) y penalidad de velocidad.
+
+**Hallazgo pendiente de resolver**: el dataset trae \`hardness\` y \`maxHp\` para las 134
+armaduras (igual que para los escudos), pero **los 134 registros están en 0** — a diferencia de
+los escudos, donde sí se importaron valores reales. Es casi seguro un problema del importador
+(mira una ruta distinta para armadura que para escudo en el paquete de Foundry), no que el juego
+diga que toda armadura tiene 0 de dureza. Como consecuencia, la app **no tiene ningún mecanismo
+de HP/rotura para la armadura** (a diferencia del escudo, que sí tiene Shield Block y reparar):
+armar ese mecanismo con datos en 0 no serviría de nada. Antes de construirlo hay que arreglar
+\`tools/import/import.mjs\` para que traiga los valores reales, y recién ahí decidir si vale la
+pena modelar el desgaste de la armadura (en la mesa se usa mucho menos que el del escudo).
 
 Pendiente: contenedores (mochilas que reducen bulk), runas aplicadas a objetos, y aplicar
 automáticamente los efectos de *encumbered* (clumsy 1 y −10 pies): hoy se avisa, no se aplica.
 
-### 4-bis. Armas personalizadas  ✅ HECHO (fuera de orden, a pedido)
+### 4-bis. Armas y armaduras personalizadas  ✅ HECHO (fuera de orden, a pedido)
 
-- [x] `build.inventory[].custom` con nombre, dados, tipo de daño, bonus de ataque/daño, traits y notas
+- [x] \`build.inventory[].custom\` con nombre, dados, tipo de daño, bonus de ataque/daño, traits y
+      notas para armas; bonus de CA, tope de Destreza, requisito de Fuerza, penalidad de
+      chequeos y de velocidad para armadura y escudo
 - [x] Los bonus entran como bonus de objeto al pipeline (aparecen en el breakdown)
-- [x] Foto del arma base dentro del custom, para sobrevivir a una reimportación
-- [x] Editor en la hoja, sobre cualquiera de las 779 armas
+- [x] Foto del objeto base dentro del custom, para sobrevivir a una reimportación
+- [x] Editor en la hoja, sobre cualquiera de las 779 armas y las 134 armaduras
+- [x] **Fatal y Deadly como campos propios** del editor (antes solo se podían agregar metiendo
+      \`fatal-d10\` a mano en el campo de traits, sin indicación de que eso funcionaba). El campo
+      pisa lo que traiga el arma del dataset, así que también sirve para homebrewear el dado de
+      crítico de un arma existente, no solo para agregarlo donde no había
+- [x] **Los campos del editor arrancan prellenados** con el valor actual del objeto (el de base,
+      o el que ya hayas personalizado), en vez de en blanco. Antes había que retipear todos los
+      stats aunque solo quisieras cambiar uno
 
 Pendiente: crear un arma de cero (hoy siempre parte de una del dataset), y las runas
-(`Striking`, `Weapon Potency`) que existen como items pero no se aplican.
+(\`Striking\`, \`Weapon Potency\`) que existen como items pero no se aplican.
 
 ### 4-quinquies. Iniciativa  ✅ HECHO
 
@@ -293,6 +312,33 @@ así que queda HTML simple que Angular sanitiza al renderizar.
 **Lo único sin ficha son las habilidades**: no hay skills.json, la lista de las 17 es una tabla
 propia en rules/tables.ts y sus descripciones no están en los packs importados. Se resolvería
 con un importador contra AoN Legacy, igual que se hizo con las condiciones.
+
+### 4-terdecies. Cuatro correcciones sueltas  ✅ HECHO
+
+- [x] **Visión editable**: antes salía fija de la ancestría. Ahora hay un selector en la fila de
+      contexto (`build.visionOverride`) para lo que la app no modela sola — un Ganzi con
+      darkvision, perder un ojo en la mesa. La opción "Según tu ancestría" muestra entre
+      paréntesis lo que te tocaría por defecto, para no perder esa información al volverla
+      editable
+- [x] **Bug real en los tags-botón**: cualquier `<button class="tag">` (quitar un idioma elegido,
+      elegir uno en el editor) salía con el cromado gris de sistema del navegador en vez del
+      estilo oscuro de la app — mismo problema de fondo que ya habíamos arreglado en
+      `.spell-name`, pero nunca se corrigió en la clase base `.tag`. Corregido ahí, así que
+      cualquier botón nuevo con esa clase también queda a salvo
+- [x] **Ancestría, Clase y Habilidad (y de paso Generales y Adicionales) son editables**: se
+      puede agregar o quitar una dote de cualquier categoría directo desde la hoja, sin pasar
+      por el asistente ni por subir de nivel — un tomo, un boon de facción, algo que decidió el
+      máster en la mesa. Reusa el mismo criterio de filtrado que ya usaba el asistente al
+      ofrecer dotes (categoría, nivel alcanzado, el trait de clase/ancestría, arquetipos vía
+      dedication). "Adicionales" es a propósito una lista sin filtrar: es el cajón de "algo
+      fuera de lo normal". Solo se puede sacar una dote que vino de una elección (no un rasgo
+      estructural de la clase, que no es opcional)
+- [x] **Ataques naturales** (garras, colmillos, púas que se disparan): ya no hace falta
+      inventariar un objeto para pelear con el cuerpo. `build.naturalWeapons` es una lista
+      aparte del inventario (no pesan, no se compran), con su propio editor (nombre, cuerpo a
+      cuerpo/distancia, dados, tipo, fatal, deadly, bonus, traits, notas) y un botón para
+      agregar en cada una de las dos secciones de ataques. Usan la proficiencia unarmed, igual
+      que el puño, y el ataque a distancia usa Destreza automáticamente como corresponde
 
 ### 5. Deudas conocidas
 
