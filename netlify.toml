@@ -1,0 +1,26 @@
+# Deploy en Netlify.
+#
+# El proyecto es una SPA de Angular sin servidor: se compila a archivos estáticos
+# y Netlify los sirve tal cual. No hace falta ninguna función ni backend propio —
+# los datos de reglas son JSON estáticos y la cuenta la maneja Supabase desde el
+# navegador.
+
+[build]
+  command = "npm run build"
+  # El builder de Angular deja el sitio en browser/; el resto de dist/ son
+  # metadatos del build, no se publican.
+  publish = "dist/pf2e-builder/browser"
+
+[build.environment]
+  # Angular 21 necesita Node 22. Sin esto Netlify elige su default, que puede ser
+  # una versión más vieja y el build falla con un error poco claro.
+  NODE_VERSION = "22"
+
+# Angular resuelve el ruteo en el navegador: si alguien entra directo a
+# /characters/<id> o recarga esa página, el archivo no existe en el disco y hay que
+# devolverle el index para que la app se encargue. Sin esto, cualquier recarga que
+# no sea la home da 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
