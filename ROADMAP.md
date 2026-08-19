@@ -276,6 +276,24 @@ no con las progresiones por nivel. Los números viven en `rules/panache.ts`.
 Lo que la hoja **no** calcula, porque depende de qué estés haciendo: el +1 de circunstancia a
 los chequeos que dan garbo, y ganarlo o perderlo (el interruptor es a mano).
 
+### 4-duodecies. Fichas del manual  ✅ HECHO
+
+- [x] Un ⓘ al lado de cada rasgo, dote, conjuro, arma, armadura, escudo, objeto del inventario
+      y condición, que muestra la descripción del manual
+- [x] Sale **en el mismo rincón que una tirada**: hasta que exista el chat de la partida, ese
+      es el lugar donde la hoja contesta. Cuando llegue la fase 2, debería postearse al chat
+- [x] Las **condiciones ya no muestran el texto completo** en la lista: solo el nombre y el ⓘ.
+      La lista de 42 entraba en tres pantallas
+- [x] El icono **solo aparece si hay descripción**, así que nunca abre una ficha vacía
+
+Las descripciones ya venían completas en el dataset (4238 dotes, 1520 conjuros, 553 rasgos,
+4373 objetos) y sin marcado de Foundry: el importador ya había limpiado los @UUID y compañía,
+así que queda HTML simple que Angular sanitiza al renderizar.
+
+**Lo único sin ficha son las habilidades**: no hay skills.json, la lista de las 17 es una tabla
+propia en rules/tables.ts y sus descripciones no están en los packs importados. Se resolvería
+con un importador contra AoN Legacy, igual que se hizo con las condiciones.
+
 ### 5. Deudas conocidas
 
 - El ChoiceSet del tipo de dragón (linaje dracónico) trae la lista embebida en vez de

@@ -221,8 +221,8 @@
                   </span>
                 }
               </span>
-              <small class="muted">{{ c.text }}</small>
             </button>
+            <button class="info" title="Ver la descripción" (click)="verFicha('condicion:' + c.id)">ⓘ</button>
             @if (hasCondition(c.id) && isValued(c.id)) {
               <div class="valuectl">
                 <button class="btn" (click)="changeConditionValue(c.id, -1)">−</button>
@@ -368,7 +368,14 @@
             <h3 class="muted">{{ grupo.label }}</h3>
             @for (f of grupo.items; track f.name + f.level) {
               <div class="feat-row">
-                <span [class.accent]="f.esDote">{{ f.name }}</span>
+                <span [class.accent]="f.esDote">
+                  {{ f.name }}
+                  @if (fichas().get((f.esDote ? 'dote:' : 'rasgo:') + f.id); as ficha) {
+                    <button class="info" title="Ver la descripción" (click)="verFicha((f.esDote ? 'dote:' : 'rasgo:') + f.id)">
+                      ⓘ
+                    </button>
+                  }
+                </span>
                 <span class="muted">nv {{ f.level }}</span>
               </div>
             }
@@ -456,6 +463,11 @@
               {{ armadura.name }}
               @if (armadura.custom) {
                 <span class="tag custom-tag">custom</span>
+              }
+              @if (fichas().get('item:' + armadura.inventoryIndex); as ficha) {
+                <button class="info" title="Ver la descripción" (click)="verFicha('item:' + armadura.inventoryIndex)">
+                  ⓘ
+                </button>
               }
             </span>
             <span class="muted datos">
@@ -567,6 +579,11 @@
               @if (escudo.custom) {
                 <span class="tag custom-tag">custom</span>
               }
+              @if (fichas().get('item:' + escudo.inventoryIndex); as ficha) {
+                <button class="info" title="Ver la descripción" (click)="verFicha('item:' + escudo.inventoryIndex)">
+                  ⓘ
+                </button>
+              }
             </span>
             <span class="muted datos">
               CA +{{ escudo.acBonus }} alzado · hardness {{ escudo.hardness }} ·
@@ -646,6 +663,7 @@
           <div class="strike cabecera">
             <span></span>
             <span class="nombre">Arma</span>
+            <span></span>
             <span class="mod ataques">
               <span title="Primer ataque del turno">1º</span>
               <span title="Segundo ataque: entra el multiple attack penalty">2º</span>
@@ -668,6 +686,7 @@
           <div class="strike cabecera">
             <span></span>
             <span class="nombre">Arma</span>
+            <span></span>
             <span class="mod ataques">
               <span title="Primer ataque del turno">1º</span>
               <span title="Segundo ataque: entra el multiple attack penalty">2º</span>
@@ -723,6 +742,7 @@
                   <div class="spell-row">
                     @if (slot.spell; as spell) {
                       <button class="spell-name" (click)="castSpell(spell, font.rank)">{{ spell.name }}</button>
+                      <button class="info" title="Ver la descripción" (click)="verFicha('conjuro:' + spell.id)">ⓘ</button>
                       @if (preparing()) {
                         <button class="rank-btn" (click)="prepareFontSpell(slot.index, null)">vaciar</button>
                       }
@@ -756,6 +776,7 @@
                   <div class="spell-row">
                     @if (slot.spell; as spell) {
                       <button class="spell-name" (click)="castSpell(spell, group.rank)">{{ spell.name }}</button>
+                      <button class="info" title="Ver la descripción" (click)="verFicha('conjuro:' + spell.id)">ⓘ</button>
                       <span class="muted spell-meta">
                         @if (spell.defense) {
                           {{ spell.basicSave ? 'basic ' : '' }}{{ spell.defense }}
@@ -825,6 +846,7 @@
                   }
 
                   <button class="spell-name" (click)="castSpell(spell, group.rank)">{{ spell.name }}</button>
+                  <button class="info" title="Ver la descripción" (click)="verFicha('conjuro:' + spell.id)">ⓘ</button>
 
                   <span class="muted spell-meta">
                     @if (spell.defense) {
@@ -872,6 +894,7 @@
                 @for (spell of spellbook(); track spell.id) {
                   <div class="spell-row">
                     <span class="spell-name">{{ spell.name }}</span>
+                    <button class="info" title="Ver la descripción" (click)="verFicha('conjuro:' + spell.id)">ⓘ</button>
                     <span class="muted spell-meta">rango {{ spell.level }}</span>
                     <button class="rank-btn" (click)="olvidarConjuro(spell.level, spell.id)">quitar</button>
                   </div>
@@ -967,6 +990,7 @@
               >
                 {{ spell.name }}
               </button>
+              <button class="info" title="Ver la descripción" (click)="verFicha('conjuro:' + spell.id)">ⓘ</button>
               <span class="muted spell-meta">
                 @if (spell.defense) {
                   {{ spell.basicSave ? 'basic ' : '' }}{{ spell.defense }}
@@ -1020,33 +1044,35 @@
           }
         </div>
 
-        <div class="rejilla angosta">
-
+        <!-- Cada objeto ocupa la fila entera: la cantidad se escribe, no se toca de a uno. -->
+        <div class="inventario-lista">
         @for (fila of inventory(); track fila.index) {
           <div class="inv-row" [class.equipped]="fila.item.equipped">
             <span class="inv-name">
               {{ fila.name }}
-              @if (fila.item.quantity > 1) {
-                <small>×{{ fila.item.quantity }}</small>
-              }
               @if (fila.inventado) {
                 <span class="tag custom-tag">inventado</span>
+              }
+              @if (fichas().get('item:' + fila.index); as ficha) {
+                <button class="info" title="Ver la descripción" (click)="verFicha('item:' + fila.index)">ⓘ</button>
               }
             </span>
 
             <span class="inv-actions">
+              <label class="cantidad" title="Cantidad">
+                <input
+                  type="number"
+                  min="1"
+                  [value]="fila.item.quantity"
+                  (change)="setQuantity(fila.index, $any($event.target).value)"
+                />
+              </label>
               @if (fila.equipable) {
                 <button class="rank-btn" (click)="toggleEquipped(fila.index)">
                   {{ fila.item.equipped ? 'guardar' : 'equipar' }}
                 </button>
               }
-              <button class="rank-btn" (click)="changeQuantity(fila.index, 1)">+</button>
-              <button class="rank-btn" (click)="changeQuantity(fila.index, -1)">−</button>
-              @if (fila.priceCp) {
-                <button class="rank-btn" (click)="sellItem(fila.index)" title="Se vende a mitad de precio">
-                  vender {{ formatCp(fila.priceCp / 2) }}
-                </button>
-              }
+              <button class="rank-btn danger" title="Eliminar" (click)="removeItem(fila.index)">eliminar</button>
             </span>
 
             @if (fila.notes) {
@@ -1056,6 +1082,7 @@
         } @empty {
           <p class="muted small">La mochila está vacía.</p>
         }
+        </div>
 
         <button class="btn ghost" (click)="addingItem.set(!addingItem())">
           {{ addingItem() ? 'Cancelar' : '+ Agregar objeto' }}
@@ -1111,7 +1138,6 @@
             </div>
           </div>
         }
-        </div>
       </app-accordion>
 
       @if (s.appearance || s.age || record()?.build?.notes) {
@@ -1157,6 +1183,9 @@
           <span class="tag">desarmado</span>
         }
       </button>
+      @if (fichas().get('item:' + st.inventoryIndex); as ficha) {
+        <button class="info" title="Ver la descripción" (click)="verFicha('item:' + st.inventoryIndex)">ⓘ</button>
+      }
       <!--
         Los tres ataques del turno: el segundo y el tercero ya traen restado el
         multiple attack penalty (menor si el arma es agile).
@@ -1298,6 +1327,18 @@
       }
     </div>
   </ng-template>
+
+  <!--
+    La ficha sale en el mismo lugar que una tirada: hasta que exista el chat de
+    la partida, ese rincón es donde la hoja te contesta.
+  -->
+  @if (ficha(); as f) {
+    <div class="roll-toast ficha-toast">
+      <button class="close" (click)="ficha.set(null)">×</button>
+      <span class="r-label">{{ f.titulo }}</span>
+      <div class="ficha-cuerpo" [innerHTML]="f.cuerpo"></div>
+    </div>
+  }
 
   @if (lastRoll(); as r) {
     <div class="roll-toast" [class.crit]="r.crit === 'success'" [class.fumble]="r.crit === 'failure'">

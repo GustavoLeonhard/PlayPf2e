@@ -360,7 +360,8 @@
 
 .strike {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  /* estrella · nombre (se estira) · ⓘ · los tres ataques */
+  grid-template-columns: auto 1fr auto auto;
   gap: 0.3rem 0.6rem;
   padding: 0.35rem 0;
   border-bottom: 1px solid var(--border);
@@ -376,6 +377,12 @@
   position: fixed;
   right: 1rem;
   bottom: 1rem;
+  /*
+   * Más alto que el de la bolsa (2): sin esto, la bolsa —que abre su propio
+   * contexto de apilamiento por tener z-index propio— tapaba el panel aunque
+   * estuviera fijado más abajo en el DOM.
+   */
+  z-index: 50;
   display: grid;
   gap: 0.1rem;
   padding: 0.8rem 1.2rem;
@@ -557,6 +564,11 @@
     border-color: var(--accent);
     color: var(--accent-strong);
   }
+
+  &.danger:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
 }
 
 .spell-row .spell-name {
@@ -720,6 +732,17 @@
 }
 
 /* --- inventario */
+
+/*
+ * Fuera de la rejilla a propósito: cada objeto ocupa la fila entera. Con
+ * columnas angostas la cantidad y los botones quedaban apretados contra el
+ * nombre.
+ */
+.inventario-lista {
+  display: flex;
+  flex-direction: column;
+}
+
 .inv-row {
   display: flex;
   flex-wrap: wrap;
@@ -732,6 +755,12 @@
   &.equipped .inv-name {
     color: var(--accent-strong);
   }
+}
+
+.cantidad input {
+  width: 3.4rem;
+  padding: 0.15rem 0.3rem;
+  text-align: center;
 }
 
 .inv-actions {
@@ -1105,4 +1134,66 @@
   grid-column: 1 / -1;
   font-size: 0.78rem;
   font-style: italic;
+}
+
+/* ------------------------------------------------------ ficha del manual */
+
+/* El ⓘ acompaña al nombre sin competirle: apagado hasta que lo mirás. */
+.info {
+  background: none;
+  border: none;
+  padding: 0 0.15rem;
+  color: var(--muted);
+  opacity: 0.55;
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+.info:hover {
+  color: var(--accent-strong);
+  opacity: 1;
+}
+
+.cond-row .info {
+  align-self: start;
+}
+
+.ficha-toast {
+  max-width: min(34rem, calc(100vw - 2rem));
+  max-height: 60vh;
+  overflow-y: auto;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.ficha-cuerpo {
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.ficha-cuerpo p {
+  margin: 0 0 0.6rem;
+}
+
+.ficha-cuerpo ul,
+.ficha-cuerpo ol {
+  margin: 0 0 0.6rem;
+  padding-left: 1.2rem;
+}
+
+.ficha-cuerpo hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.6rem 0;
+}
+
+.ficha-cuerpo table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.ficha-cuerpo td,
+.ficha-cuerpo th {
+  border: 1px solid var(--border);
+  padding: 0.15rem 0.4rem;
 }

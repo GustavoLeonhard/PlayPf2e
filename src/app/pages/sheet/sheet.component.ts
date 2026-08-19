@@ -142,7 +142,8 @@ export class SheetComponent implements OnInit {
 
     const todos = [
       ...sheet.features.map((f) => ({ ...f, esDote: false })),
-      ...sheet.feats.map((f) => ({ name: f.name, level: f.level, source: f.source, esDote: true })),
+      // El id viaja para poder buscar la descripción del manual.
+      ...sheet.feats.map((f) => ({ name: f.name, level: f.level, source: f.source, id: f.id, esDote: true })),
     ];
 
     return etiquetas
@@ -710,6 +711,58 @@ export class SheetComponent implements OnInit {
     if (opcion) this.roll(`Iniciativa (${opcion.label})`, opcion.stat);
   }
 
+  // ------------------------------------------------------------- fichas
+
+  /**
+   * La descripción del manual de cada cosa que la hoja muestra.
+   *
+   * Se arma una sola vez por render en vez de resolverla fila por fila: la hoja
+   * tiene cerca de cien filas y cada una haría su propia búsqueda.
+   *
+   * La clave lleva prefijo porque conviven ids de mundos distintos: un rasgo y
+   * un objeto podrían compartir id sin que eso signifique nada.
+   */
+  readonly fichas = computed(() => {
+    const sheet = this.sheet();
+    const index = this.index();
+    const record = this.record();
+    const salida = new Map<string, { titulo: string; cuerpo: string }>();
+    if (!sheet || !index) return salida;
+
+    const guardar = (clave: string, titulo: string, cuerpo?: string | null) => {
+      const limpio = (cuerpo ?? '').trim();
+      if (limpio) salida.set(clave, { titulo, cuerpo: limpio });
+    };
+
+    // Rasgos de clase y ancestría, y las dotes elegidas.
+    for (const f of sheet.features) {
+      if (f.id) guardar(`rasgo:${f.id}`, f.name, index.featureById.get(f.id)?.description);
+    }
+    for (const f of sheet.feats) {
+      guardar(`dote:${f.id}`, f.name, index.featById.get(f.id)?.description ?? index.featureById.get(f.id)?.description);
+    }
+
+    // Todo lo que está en la mochila, por posición: es lo que tienen a mano las
+    // filas de inventario, los ataques y las defensas.
+    (record?.build.inventory ?? []).forEach((item, i) => {
+      const base = index.equipmentById.get(item.id);
+      if (base) guardar(`item:${i}`, base.name, base.description);
+    });
+
+    for (const spell of this.spellList()) guardar(`conjuro:${spell.id}`, spell.name, spell.description);
+    for (const c of this.conditionList()) guardar(`condicion:${c.id}`, c.name, c.text);
+
+    return salida;
+  });
+
+  /** La ficha abierta, o null. Se muestra como el resultado de una tirada. */
+  readonly ficha = signal<{ titulo: string; cuerpo: string } | null>(null);
+
+  verFicha(clave: string) {
+    const encontrada = this.fichas().get(clave);
+    if (encontrada) this.ficha.set(encontrada);
+  }
+
   // ----------------------------------------------------------- garbo
 
   /**
@@ -980,27 +1033,29 @@ export class SheetComponent implements OnInit {
     await this.guardar(record);
   }
 
+  /** La cantidad se escribe directo, en vez de tocar +/- una por una. */
+  async setQuantity(index: number, valor: string) {
+    const record = this.record();
+    if (!record) return;
+    const cantidad = Math.max(1, Math.round(Number(valor) || 1));
+    record.build.inventory = record.build.inventory.map((it, i) => (i === index ? { ...it, quantity: cantidad } : it));
+    await this.guardar(record);
+  }
+
+  /** Sacarlo de la mochila entero, sin importar cuántos tenías. */
+  async removeItem(index: number) {
+    const record = this.record();
+    if (!record) return;
+    record.build.inventory = record.build.inventory.filter((_, i) => i !== index);
+    await this.guardar(record);
+  }
+
   async toggleEquipped(index: number) {
     const record = this.record();
     if (!record) return;
     record.build.inventory = record.build.inventory.map((it, i) =>
       i === index ? { ...it, equipped: !it.equipped } : it,
     );
-    await this.guardar(record);
-  }
-
-  /** En PF2e los objetos se venden a la mitad de su precio. */
-  async sellItem(index: number) {
-    const record = this.record();
-    const fila = this.inventory()[index];
-    if (!record || !fila) return;
-
-    record.state.coins = (record.state.coins ?? 0) + Math.floor(fila.priceCp / 2);
-    record.state.purse = splitCp(record.state.coins);
-    record.build.inventory =
-      fila.item.quantity > 1
-        ? record.build.inventory.map((it, i) => (i === index ? { ...it, quantity: it.quantity - 1 } : it))
-        : record.build.inventory.filter((_, i) => i !== index);
     await this.guardar(record);
   }
 

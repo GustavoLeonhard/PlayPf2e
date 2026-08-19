@@ -108,6 +108,14 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem;
+  /*
+   * Sin esto, Chromium a veces pinta el borde de las primeras tarjetas de una
+   * fila con un color apenas distinto hasta el primer repaint (p. ej. al pasar
+   * el mouse): es el glitch de antialiasing de bordes redondeados en grids/flex
+   * con muchos hermanos. Forzar una capa de composición propia por tarjeta lo
+   * evita desde el primer pintado.
+   */
+  transform: translateZ(0);
 }
 
 .muted {
