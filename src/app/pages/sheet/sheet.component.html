@@ -178,6 +178,20 @@
         }
       </div>
 
+      @if (s.panache; as garbo) {
+        <div class="card mini garbo" [class.on]="garbo.active">
+          <span class="label muted">Garbo</span>
+          <button class="btn" [class.primary]="garbo.active" (click)="togglePanache()">
+            {{ garbo.active ? 'Lo tenés' : 'Sin garbo' }}
+          </button>
+          @if (garbo.preciseStrike; as pg) {
+            <small class="muted">
+              Precise Strike {{ garbo.active ? '+' + pg.flat : '—' }} · finisher {{ pg.finisherDice }}d6
+            </small>
+          }
+        </div>
+      }
+
       <div class="card mini hero">
         <span class="label muted">Hero points</span>
         <div class="hp-controls">
@@ -430,6 +444,201 @@
         </div>
       </app-accordion>
 
+      <!--
+        La armadura se edita igual que un arma: lo que el máster cambió se guarda
+        en el personaje y el motor lo aplica a la CA, a la penalidad de chequeos
+        y a la velocidad.
+      -->
+      <app-accordion titulo="Armadura y escudo" [inicial]="false">
+        @if (s.armor; as armadura) {
+          <div class="defensa">
+            <span class="nombre">
+              {{ armadura.name }}
+              @if (armadura.custom) {
+                <span class="tag custom-tag">custom</span>
+              }
+            </span>
+            <span class="muted datos">
+              CA +{{ armadura.acBonus }}
+              @if (armadura.dexCap !== null) {
+                · tope de Destreza +{{ armadura.dexCap }}
+              }
+              @if (armadura.checkPenalty) {
+                · chequeos {{ armadura.checkPenalty }}
+              }
+              @if (armadura.speedPenalty) {
+                · velocidad {{ armadura.speedPenalty }} ft
+              }
+              @if (armadura.strength !== null) {
+                · Fuerza {{ armadura.strength }} para ignorar la penalidad
+              }
+            </span>
+            <button class="w-ok" (click)="editingDefense.set(editingDefense() === 'armor' ? null : 'armor')">
+              personalizar
+            </button>
+
+            @if (armadura.notes) {
+              <p class="weapon-notes">{{ armadura.notes }}</p>
+            }
+
+            @if (editingDefense() === 'armor') {
+              <div class="weapon-editor">
+                <label>
+                  Nombre
+                  <input
+                    type="text"
+                    [value]="customOf(armadura.inventoryIndex).name ?? ''"
+                    (change)="saveCustomItem(armadura.inventoryIndex, { name: $any($event.target).value })"
+                  />
+                </label>
+
+                <div class="editor-row">
+                  <label>
+                    Bonus de CA
+                    <input
+                      type="number"
+                      [value]="customOf(armadura.inventoryIndex).acBonus ?? ''"
+                      (change)="saveCustomItem(armadura.inventoryIndex, { acBonus: numero($any($event.target).value) })"
+                    />
+                  </label>
+                  <label>
+                    Tope de Destreza
+                    <input
+                      type="number"
+                      [value]="customOf(armadura.inventoryIndex).dexCap ?? ''"
+                      (change)="saveCustomItem(armadura.inventoryIndex, { dexCap: numero($any($event.target).value) })"
+                    />
+                  </label>
+                  <label>
+                    Fuerza requerida
+                    <input
+                      type="number"
+                      [value]="customOf(armadura.inventoryIndex).strength ?? ''"
+                      (change)="saveCustomItem(armadura.inventoryIndex, { strength: numero($any($event.target).value) })"
+                    />
+                  </label>
+                </div>
+
+                <div class="editor-row">
+                  <label>
+                    Penalidad de chequeos
+                    <input
+                      type="number"
+                      [value]="customOf(armadura.inventoryIndex).checkPenalty ?? ''"
+                      (change)="saveCustomItem(armadura.inventoryIndex, { checkPenalty: numero($any($event.target).value) })"
+                    />
+                  </label>
+                  <label>
+                    Penalidad de velocidad
+                    <input
+                      type="number"
+                      [value]="customOf(armadura.inventoryIndex).speedPenalty ?? ''"
+                      (change)="saveCustomItem(armadura.inventoryIndex, { speedPenalty: numero($any($event.target).value) })"
+                    />
+                  </label>
+                </div>
+
+                <label>
+                  Notas <small class="muted">(lo que la app no puede calcular)</small>
+                  <textarea
+                    rows="2"
+                    [value]="customOf(armadura.inventoryIndex).notes ?? ''"
+                    (change)="saveCustomItem(armadura.inventoryIndex, { notes: $any($event.target).value })"
+                  ></textarea>
+                </label>
+
+                <div class="editor-actions">
+                  <button class="btn" (click)="editingDefense.set(null)">Listo</button>
+                  <button class="btn ghost danger" (click)="clearCustomItem(armadura.inventoryIndex)">
+                    Volver a la armadura original
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="muted small">No tenés armadura equipada: la CA sale de tu proficiencia sin armadura.</p>
+        }
+
+        @if (s.shield; as escudo) {
+          <div class="defensa">
+            <span class="nombre">
+              {{ escudo.name }}
+              @if (escudo.custom) {
+                <span class="tag custom-tag">custom</span>
+              }
+            </span>
+            <span class="muted datos">
+              CA +{{ escudo.acBonus }} alzado · hardness {{ escudo.hardness }} ·
+              HP {{ escudo.currentHp }}/{{ escudo.maxHp }} (se rompe en {{ escudo.brokenThreshold }})
+            </span>
+            <button class="w-ok" (click)="editingDefense.set(editingDefense() === 'shield' ? null : 'shield')">
+              personalizar
+            </button>
+
+            @if (escudo.notes) {
+              <p class="weapon-notes">{{ escudo.notes }}</p>
+            }
+
+            @if (editingDefense() === 'shield') {
+              <div class="weapon-editor">
+                <label>
+                  Nombre
+                  <input
+                    type="text"
+                    [value]="customOf(escudo.inventoryIndex).name ?? ''"
+                    (change)="saveCustomItem(escudo.inventoryIndex, { name: $any($event.target).value })"
+                  />
+                </label>
+
+                <div class="editor-row">
+                  <label>
+                    Bonus de CA
+                    <input
+                      type="number"
+                      [value]="customOf(escudo.inventoryIndex).acBonus ?? ''"
+                      (change)="saveCustomItem(escudo.inventoryIndex, { acBonus: numero($any($event.target).value) })"
+                    />
+                  </label>
+                  <label>
+                    Hardness
+                    <input
+                      type="number"
+                      [value]="customOf(escudo.inventoryIndex).hardness ?? ''"
+                      (change)="saveCustomItem(escudo.inventoryIndex, { hardness: numero($any($event.target).value) })"
+                    />
+                  </label>
+                  <label>
+                    HP máximos
+                    <input
+                      type="number"
+                      [value]="customOf(escudo.inventoryIndex).maxHp ?? ''"
+                      (change)="saveCustomItem(escudo.inventoryIndex, { maxHp: numero($any($event.target).value) })"
+                    />
+                  </label>
+                </div>
+
+                <label>
+                  Notas
+                  <textarea
+                    rows="2"
+                    [value]="customOf(escudo.inventoryIndex).notes ?? ''"
+                    (change)="saveCustomItem(escudo.inventoryIndex, { notes: $any($event.target).value })"
+                  ></textarea>
+                </label>
+
+                <div class="editor-actions">
+                  <button class="btn" (click)="editingDefense.set(null)">Listo</button>
+                  <button class="btn ghost danger" (click)="clearCustomItem(escudo.inventoryIndex)">
+                    Volver al escudo original
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </app-accordion>
+
       <app-accordion titulo="Cuerpo a cuerpo" [subtitulo]="ataques(meleeStrikes().length)">
         <div class="ataques-tabla">
         @if (meleeStrikes().length) {
@@ -633,12 +842,84 @@
                       }
                     </span>
                   }
+
+                  <button
+                    class="rank-btn"
+                    title="Sacarlo de tu repertorio"
+                    (click)="olvidarConjuro(group.isCantrips ? 0 : group.rank, spell.id)"
+                  >
+                    quitar
+                  </button>
                 </div>
               } @empty {
                 <p class="muted small">Sin hechizos elegidos.</p>
               }
             </div>
           }
+          </div>
+
+          <!--
+            Un conjuro no se aprende solo al subir de nivel: un mago copia un
+            pergamino, un máster te regala uno. Desde acá se agrega cuando pasa.
+          -->
+          @if (usaLibro()) {
+            <div class="spell-group">
+              <div class="spell-head">
+                <strong>Libro de conjuros</strong>
+                <span class="muted small">{{ spellbook().length }} conjuros</span>
+              </div>
+              <div class="rejilla angosta">
+                @for (spell of spellbook(); track spell.id) {
+                  <div class="spell-row">
+                    <span class="spell-name">{{ spell.name }}</span>
+                    <span class="muted spell-meta">rango {{ spell.level }}</span>
+                    <button class="rank-btn" (click)="olvidarConjuro(spell.level, spell.id)">quitar</button>
+                  </div>
+                } @empty {
+                  <p class="muted small">El libro está vacío.</p>
+                }
+              </div>
+            </div>
+          }
+
+          <div class="aprender">
+            @if (agregandoConjuro() === null) {
+              <button class="btn ghost" (click)="agregandoConjuro.set(0)">
+                + {{ usaLibro() ? 'Agregar al libro' : soloCantrips() ? 'Aprender un cantrip' : 'Aprender un conjuro' }}
+              </button>
+              @if (soloCantrips()) {
+                <p class="muted small">
+                  Preparás de toda tu tradición, así que no hay conjuros que "aprender": ya los
+                  tenés todos disponibles. Lo que sí es tuyo son los cantrips.
+                </p>
+              }
+            } @else {
+              <div class="aprender-form">
+                @if (rangosAprendibles().length) {
+                  <label>
+                    Rango
+                    <select [value]="agregandoConjuro()" (change)="agregandoConjuro.set(+$any($event.target).value)">
+                      <option [value]="0">Cantrip</option>
+                      @for (r of rangosAprendibles(); track r) {
+                        <option [value]="r">Rango {{ r }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+
+                <label>
+                  Conjuro
+                  <select (change)="aprenderConjuro(agregandoConjuro()!, $any($event.target).value)">
+                    <option value="">Elegí uno…</option>
+                    @for (spell of aprendibles(agregandoConjuro()!); track spell.id) {
+                      <option [value]="spell.id">{{ spell.name }}</option>
+                    }
+                  </select>
+                </label>
+
+                <button class="btn ghost" (click)="agregandoConjuro.set(null)">Cancelar</button>
+              </div>
+            }
           </div>
       </app-accordion>
       }
@@ -911,6 +1192,19 @@
           </button>
         }
       </span>
+
+      @if (sheet()?.panache; as garbo) {
+        @if (garbo.preciseStrike && !st.ranged && (st.traits.includes('agile') || st.traits.includes('finesse'))) {
+          <p class="precise muted">
+            @if (garbo.active) {
+              Precise Strike: +{{ garbo.preciseStrike.flat }} de precisión incluido ·
+              {{ garbo.preciseStrike.finisherDice }}d6 si es un finisher
+            } @else {
+              Con garbo sumaría +{{ garbo.preciseStrike.flat }} de precisión
+            }
+          </p>
+        }
+      }
 
       @if (st.notes) {
         <p class="weapon-notes">{{ st.notes }}</p>

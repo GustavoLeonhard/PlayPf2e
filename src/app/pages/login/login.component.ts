@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
+import { invitacionPendiente } from '../join/join.component';
 
 @Component({
   selector: 'app-login',
@@ -119,7 +120,13 @@ export class LoginComponent {
         : await this.auth.signUp(this.email, this.password);
     this.busy.set(false);
 
-    if (message) this.error.set(message);
-    else void this.router.navigate(['/characters']);
+    if (message) {
+      this.error.set(message);
+      return;
+    }
+
+    // Si venías de un link de invitación, se retoma donde quedó.
+    const invitacion = invitacionPendiente();
+    void this.router.navigate(invitacion ? ['/join', invitacion] : ['/characters']);
   }
 }

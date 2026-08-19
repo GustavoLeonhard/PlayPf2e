@@ -1088,3 +1088,21 @@
   color: var(--accent-strong);
   font-weight: 600;
 }
+
+/* --------------------------------------------------------------- garbo */
+
+.garbo.on {
+  border-color: var(--accent);
+}
+
+.garbo small {
+  display: block;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.precise {
+  grid-column: 1 / -1;
+  font-size: 0.78rem;
+  font-style: italic;
+}

@@ -22,6 +22,7 @@ import { CASTERS, cantripsKnownFor, spellSlots, spellbookSize } from '../../core
 import { featureChoicesAt } from '../../core/rules/progression';
 import { ABILITIES, ABILITY_NAMES, ALIGNMENTS, ALIGNMENT_NAMES } from '../../core/models/content.model';
 import { CharacterService } from '../../core/services/character.service';
+import { PartyService } from '../../core/services/party.service';
 import { ContentService } from '../../core/services/content.service';
 import { SKILLS, abilityMod, applyBoost } from '../../core/rules/tables';
 import { OptionPickerComponent, type PickerOption } from '../../shared/option-picker.component';
@@ -69,6 +70,7 @@ const STEPS: Step[] = [
 export class WizardComponent {
   private content = inject(ContentService);
   private characters = inject(CharacterService);
+  private parties = inject(PartyService);
   private router = inject(Router);
 
   readonly stepIndex = signal(0);
@@ -540,6 +542,12 @@ export class WizardComponent {
     this.stepIndex.set(index);
   }
 
+  /**
+   * Si llegaste acá desde una partida (`?party=<id>`), al terminar te sentás con
+   * el personaje recién creado y volvés a la mesa.
+   */
+  private readonly partyId = new URLSearchParams(location.search).get('party');
+
   async finish() {
     this.saving.set(true);
     try {
@@ -547,6 +555,13 @@ export class WizardComponent {
       // Lo que no gastaste en la creación queda como tu bolsa inicial.
       record.state.coins = Math.max(0, this.remainingCp());
       await this.characters.save(record);
+
+      if (this.partyId) {
+        await this.parties.setCharacter(this.partyId, record.id);
+        void this.router.navigate(['/parties', this.partyId]);
+        return;
+      }
+
       void this.router.navigate(['/characters', record.id]);
     } finally {
       this.saving.set(false);

@@ -1,11 +1,11 @@
 import { Component, inject } from '@angular/core';
-import { Router, RouterLink, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AuthService } from './core/services/auth.service';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
     <header class="topbar">
       <a class="brand" routerLink="/characters">
@@ -14,6 +14,11 @@ import { AuthService } from './core/services/auth.service';
       </a>
 
       @if (auth.isLoggedIn()) {
+        <nav class="nav">
+          <a routerLink="/characters" routerLinkActive="on">Personajes</a>
+          <a routerLink="/parties" routerLinkActive="on">Partidas</a>
+        </nav>
+
         <div class="user">
           @if (auth.localMode) {
             <span class="tag" title="No hay Supabase configurado: los personajes se guardan en este navegador">
@@ -54,6 +59,25 @@ import { AuthService } from './core/services/auth.service';
     .d20 {
       color: var(--accent);
       font-size: 1.3rem;
+    }
+
+    .nav {
+      display: flex;
+      gap: 1rem;
+      margin-right: auto;
+      margin-left: 1.5rem;
+    }
+
+    .nav a {
+      color: var(--muted);
+      text-decoration: none;
+      padding: 0.2rem 0;
+      border-bottom: 2px solid transparent;
+    }
+
+    .nav a.on {
+      color: var(--accent-strong);
+      border-bottom-color: var(--accent);
     }
 
     .user {

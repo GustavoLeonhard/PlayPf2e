@@ -27,8 +27,117 @@ import {
   type SpellcastingEntry,
 } from './spellcasting';
 import { languageSlots } from './languages';
+import { PANACHE_SPEED_BONUS, preciseStrike, vivaciousSpeed } from './panache';
 import { STARTING_MONEY_CP, formatCp, priceToCp } from './money';
 import { PROFICIENCY_BONUS, SKILLS, abilityMod, applyBoost } from './tables';
+
+/**
+ * El primer objeto equipado que cumpla el filtro, con las modificaciones del
+ * master ya aplicadas encima.
+ *
+ * Existe porque la armadura y el escudo se buscaban directo en el catálogo y se
+ * perdía todo lo que el master hubiera cambiado.
+ */
+function equipadoConCustom(
+  build: CharacterBuild,
+  content: ContentIndex,
+  filtro: (eq: Equipment) => boolean,
+): { equipment: Equipment; custom: CustomItem | undefined; inventoryIndex: number } | null {
+  for (const [inventoryIndex, item] of build.inventory.entries()) {
+    if (!item.equipped) continue;
+
+    const base = content.equipmentById.get(item.id);
+    const snapshot = item.custom?.base;
+    if (!base && !snapshot) continue;
+
+    const equipment: Equipment = base
+      ? { ...base }
+      : ({
+          ...VACIO,
+          id: item.id,
+          name: snapshot!.name,
+          traits: [...snapshot!.traits],
+          damage: snapshot!.damage,
+          range: snapshot!.range,
+          category: snapshot!.category,
+          group: snapshot!.group,
+          acBonus: snapshot!.acBonus ?? null,
+          dexCap: snapshot!.dexCap ?? null,
+          checkPenalty: snapshot!.checkPenalty ?? null,
+          speedPenalty: snapshot!.speedPenalty ?? null,
+          strength: snapshot!.strength ?? null,
+          hardness: snapshot!.hardness ?? null,
+          maxHp: snapshot!.maxHp ?? null,
+          type: snapshot!.category === 'shield' ? 'shield' : 'armor',
+        } as Equipment);
+
+    const custom = item.custom;
+    if (custom) {
+      if (custom.name) equipment.name = custom.name;
+      if (custom.traits?.length) equipment.traits = [...equipment.traits, ...custom.traits];
+      // Un 0 es un valor válido (una armadura sin penalidad), así que se compara
+      // contra undefined y no por truthiness.
+      if (custom.acBonus !== undefined) equipment.acBonus = custom.acBonus;
+      if (custom.dexCap !== undefined) equipment.dexCap = custom.dexCap;
+      if (custom.checkPenalty !== undefined) equipment.checkPenalty = custom.checkPenalty;
+      if (custom.speedPenalty !== undefined) equipment.speedPenalty = custom.speedPenalty;
+      if (custom.strength !== undefined) equipment.strength = custom.strength;
+      if (custom.hardness !== undefined) equipment.hardness = custom.hardness;
+      if (custom.maxHp !== undefined) equipment.maxHp = custom.maxHp;
+    }
+
+    if (!filtro(equipment)) continue;
+    return { equipment, custom, inventoryIndex };
+  }
+  return null;
+}
+
+/** Molde de un objeto vacío, para armar uno inventado sin repetir 20 nulls. */
+const VACIO = {
+  id: '',
+  slug: '',
+  name: '',
+  traits: [] as string[],
+  tags: [] as string[],
+  rarity: 'common',
+  source: 'Personalizada',
+  description: '',
+  type: 'armor',
+  level: 0,
+  price: null,
+  bulk: 0,
+  usage: '',
+  damage: null,
+  range: null,
+  reload: null,
+  category: null,
+  group: null,
+  acBonus: null,
+  dexCap: null,
+  strength: null,
+  checkPenalty: null,
+  speedPenalty: null,
+  hardness: null,
+  maxHp: null,
+};
+
+/**
+ * Lo que el garbo le suma a la velocidad.
+ *
+ * Vivacious Speed **reemplaza** el +5 base, no se suma: a nivel 3 son +10 con
+ * garbo, no +15. Y sin garbo queda la mitad, que es el único bonus que se aplica
+ * cuando el interruptor está apagado.
+ */
+function bonusDeGarbo(panache: CharacterSheet['panache']): Modifier[] {
+  if (!panache) return [];
+
+  if (panache.vivacious) {
+    const valor = panache.active ? panache.vivacious.conGarbo : panache.vivacious.sinGarbo;
+    return valor ? [mod(panache.active ? 'Vivacious Speed (con garbo)' : 'Vivacious Speed', valor, 'status')] : [];
+  }
+
+  return panache.active ? [mod('Garbo', PANACHE_SPEED_BONUS, 'status')] : [];
+}
 
 /** Contenido ya indexado que el motor necesita para resolver referencias. */
 export interface ContentIndex {
@@ -141,6 +250,31 @@ export interface CharacterSheet {
   /** Vision de la ancestria: normal, low-light-vision o darkvision. */
   vision: string;
   /**
+   * Garbo del Swashbuckler, o null si el personaje no lo tiene. Es un estado
+   * binario: cambia el daño de Precise Strike y la velocidad.
+   */
+  panache: {
+    active: boolean;
+    preciseStrike: { flat: number; finisherDice: number } | null;
+    vivacious: { conGarbo: number; sinGarbo: number } | null;
+  } | null;
+  /**
+   * Armadura equipada, con las modificaciones del master ya aplicadas. Se expone
+   * entera (y no solo su efecto en la CA) porque la hoja la deja editar.
+   */
+  armor: {
+    name: string;
+    inventoryIndex: number;
+    custom: boolean;
+    category: string;
+    acBonus: number;
+    dexCap: number | null;
+    checkPenalty: number;
+    speedPenalty: number;
+    strength: number | null;
+    notes: string | null;
+  } | null;
+  /**
    * Escudo equipado. El bonus a la CA solo cuenta si esta ALZADO (Raise a Shield es
    * una accion), y no cuenta si esta roto. Verificado en la pagina de Shields de AoN:
    * "grants the shield's bonus to AC as a circumstance bonus until their next turn
@@ -150,6 +284,9 @@ export interface CharacterSheet {
    */
   shield: {
     name: string;
+    inventoryIndex: number;
+    custom: boolean;
+    notes: string | null;
     acBonus: number;
     hardness: number;
     maxHp: number;
@@ -589,16 +726,27 @@ export function computeCharacter(
   }
 
   // --- armadura equipada (define CA y su categoria de proficiencia)
-  const armor = build.inventory
-    .filter((i) => i.equipped)
-    .map((i) => content.equipmentById.get(i.id))
-    .find((e) => e?.type === 'armor' && e.category !== 'shield');
+  const armorEntry = equipadoConCustom(build, content, (eq) => eq.type === 'armor' && eq.category !== 'shield');
+  const armor = armorEntry?.equipment ?? null;
+
+  const armorSheet: CharacterSheet['armor'] = armorEntry
+    ? {
+        name: armor!.name,
+        inventoryIndex: armorEntry.inventoryIndex,
+        custom: !!armorEntry.custom,
+        category: armor!.category ?? 'unarmored',
+        acBonus: armor!.acBonus ?? 0,
+        dexCap: armor!.dexCap,
+        checkPenalty: armor!.checkPenalty ?? 0,
+        speedPenalty: armor!.speedPenalty ?? 0,
+        strength: armor!.strength,
+        notes: armorEntry.custom?.notes ?? null,
+      }
+    : null;
 
   // --- escudo
-  const shieldItem = build.inventory
-    .filter((i) => i.equipped)
-    .map((i) => content.equipmentById.get(i.id))
-    .find((e) => e?.type === 'shield');
+  const shieldEntry = equipadoConCustom(build, content, (eq) => eq.type === 'shield');
+  const shieldItem = shieldEntry?.equipment ?? null;
 
   let shieldSheet: CharacterSheet['shield'] = null;
   if (shieldItem) {
@@ -608,6 +756,9 @@ export function computeCharacter(
 
     shieldSheet = {
       name: shieldItem.name,
+      inventoryIndex: shieldEntry!.inventoryIndex,
+      custom: !!shieldEntry!.custom,
+      notes: shieldEntry!.custom?.notes ?? null,
       acBonus: shieldItem.acBonus ?? 0,
       hardness: shieldItem.hardness ?? 0,
       maxHp,
@@ -693,8 +844,14 @@ export function computeCharacter(
       ...conditionModifiers(state, [`skill:${def.slug}`, `${def.ability}-based`, 'all-checks']),
     ];
     if (def.armorPenalty && armorPenalty) {
+      /*
+       * El requisito de Fuerza de una armadura viene del dataset como MODIFICADOR
+       * (los 118 valores van de 0 a 5), no como puntuación. Antes se comparaba
+       * contra la puntuación —10 a 20— así que la condición nunca se cumplía y la
+       * penalidad de chequeos no se aplicaba a nadie.
+       */
       const strReq = armor?.strength ?? null;
-      if (strReq == null || scores.str < strReq) modifiers.push(mod(`${armor?.name} (armadura)`, armorPenalty, 'item'));
+      if (strReq == null || mods.str < strReq) modifiers.push(mod(`${armor?.name} (armadura)`, armorPenalty, 'item'));
     }
     return { slug: def.slug, name: def.name, rank, stat: buildStat(modifiers) };
   });
@@ -744,6 +901,22 @@ export function computeCharacter(
     ...skills.map((s) => ({ key: `skill:${s.slug}`, label: s.name, stat: conBonus(s.stat, false) })),
     ...lores.map((l) => ({ key: l.slug, label: l.name, stat: conBonus(l.stat, false) })),
   ];
+
+  /*
+   * --- garbo (panache)
+   *
+   * Se maneja por los rasgos que tenga el personaje y no por la clase: con el
+   * arquetipo Swashbuckler Dedication se gana Panache sin ser de la clase (y sin
+   * Precise Strike, que no viene con la dedication).
+   */
+  const tieneRasgo = (nombre: string) => activeFeatures.some((f) => f.name === nombre);
+  const panacheSheet: CharacterSheet['panache'] = tieneRasgo('Panache')
+    ? {
+        active: state?.panache ?? false,
+        preciseStrike: tieneRasgo('Precise Strike') ? preciseStrike(level) : null,
+        vivacious: tieneRasgo('Vivacious Speed') ? vivaciousSpeed(level) : null,
+      }
+    : null;
 
   // --- strikes: el puño primero, despues las armas equipadas
   //
@@ -863,6 +1036,18 @@ export function computeCharacter(
       if (!ranged) damageMods.push(mod('Fuerza', mods.str, 'ability'));
       if (weapon.traits.includes('propulsive')) damageMods.push(mod('Propulsive', Math.floor(mods.str / 2), 'ability'));
       damageMods.push(...damageBonuses(activeFeatures, chosenFeats, weapon));
+
+      /*
+       * Precise Strike: daño de precisión solo mientras tenés garbo, y solo con
+       * un arma cuerpo a cuerpo (o desarmado) agile o finesse. El dataset trae
+       * el rule element pero con `value: null`, así que el número sale de la
+       * tabla verificada en panache.ts.
+       */
+      const preciso = panacheSheet?.preciseStrike;
+      const armaDePrecision = !ranged && (weapon.traits.includes('agile') || weapon.traits.includes('finesse'));
+      if (preciso && panacheSheet.active && armaDePrecision) {
+        damageMods.push(mod('Precise Strike (precisión)', preciso.flat, 'untyped'));
+      }
       if (custom?.bonusDamage) damageMods.push(mod(weapon.name, custom.bonusDamage, 'item'));
       damageMods.push(...conditionModifiers(state, ['str-based'].filter(() => !ranged)));
 
@@ -1086,10 +1271,12 @@ export function computeCharacter(
   const speed = buildStat([
     mod(ancestry?.name ?? 'Base', ancestry?.speed ?? 25, 'untyped'),
     ...(armor?.speedPenalty ? [mod(`${armor.name}`, armor.speedPenalty, 'untyped')] : []),
+    ...bonusDeGarbo(panacheSheet),
   ]);
 
   return {
     name: build.name || 'Sin nombre',
+    panache: panacheSheet,
     level,
     className: pf2class?.name ?? '—',
     ancestryName: ancestry?.name ?? '—',
@@ -1121,6 +1308,7 @@ export function computeCharacter(
     appearance: build.appearance ?? '',
     languages: { fromAncestry, chosen: chosenLanguages, slots: languageSlotCount },
     strikes,
+    armor: armorSheet,
     proficiencies: prof,
     // Dos fuentes distintas pueden otorgar lo mismo (Munitions Crafter y Alchemist
     // Dedication otorgan Alchemical Crafting): se lista una sola vez.

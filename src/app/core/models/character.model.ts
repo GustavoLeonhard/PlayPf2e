@@ -77,6 +77,19 @@ export interface CustomItem {
   damageDice?: number;
   damageDie?: string;
   damageType?: string;
+
+  /**
+   * Armadura y escudos. Mismo criterio que las armas: lo que el máster cambió
+   * sobre el objeto del catálogo, o los valores enteros de uno inventado.
+   */
+  acBonus?: number;
+  dexCap?: number;
+  checkPenalty?: number;
+  speedPenalty?: number;
+  /** Fuerza requerida para ignorar la penalidad de chequeos. */
+  strength?: number;
+  hardness?: number;
+  maxHp?: number;
   /** Entran al pipeline como bonus de objeto, igual que una runa de potencia. */
   bonusAttack?: number;
   bonusDamage?: number;
@@ -94,6 +107,13 @@ export interface CustomItem {
     group: string | null;
     traits: string[];
     range: number | null;
+    acBonus?: number | null;
+    dexCap?: number | null;
+    checkPenalty?: number | null;
+    speedPenalty?: number | null;
+    strength?: number | null;
+    hardness?: number | null;
+    maxHp?: number | null;
   };
 }
 
@@ -169,6 +189,12 @@ export interface CharacterState {
   focusPoints: number;
   /** Escudo: si esta alzado (dura hasta el inicio de tu proximo turno) y como esta de HP. */
   shield: { raised: boolean; hp: number };
+  /**
+   * Garbo (panache) del Swashbuckler. Es binario: lo tenés o no lo tenés, no se
+   * acumula. Dura entre turnos y se pierde al usar un finisher o al terminar el
+   * encuentro, así que se apaga a mano como el escudo alzado.
+   */
+  panache?: boolean;
   /** Monedas actuales, en cobre. Cambia todo el tiempo, por eso va en el estado. */
   coins: number;
   /**
@@ -237,6 +263,7 @@ export function emptyState(): CharacterState {
     conditions: [],
     focusPoints: 0,
     shield: { raised: false, hp: 0 },
+    panache: false,
     coins: 0,
     purse: { pp: 0, gp: 0, sp: 0, cp: 0 },
     spellSlotsUsed: {},

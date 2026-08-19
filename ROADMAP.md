@@ -232,6 +232,50 @@ Dos arreglos que salieron de ahí:
 oro quedan 15 gp, no 1 pp y 5 gp. `state.coins` sigue siendo el total en cobre y es lo que usan
 comprar y vender; después de una compra la bolsa **sí** se reacomoda, porque te dan vuelto.
 
+### 4-decies. Aprender conjuros y editar la armadura  ✅ HECHO
+
+Las dos cosas que solo se podían tocar al crear el personaje o al subir de nivel, y en la mesa
+pasan en cualquier momento.
+
+- [x] **Aprender y olvidar conjuros desde la hoja**: cantrips y repertorio para los espontáneos,
+      libro para el mago. Un pergamino copiado o un conjuro regalado ya no obligan a esperar
+      al próximo nivel
+- [x] El **libro del mago** no se mostraba en ningún lado: ahora se lista y se edita
+- [x] Un Cleric o un Druid **no aprenden conjuros** (preparan de toda su tradición), así que a
+      ellos la hoja solo les ofrece cantrips y explica por qué
+- [x] **Armadura y escudo editables** como las armas: bonus de CA, tope de Destreza, requisito
+      de Fuerza, penalidades de chequeos y velocidad, hardness y HP. Todo se guarda en el
+      personaje y el motor lo aplica
+- [x] La foto del objeto base ahora incluye los campos de armadura, así que sobrevive a una
+      reimportación igual que las armas
+
+**Bug que destapó esto**: el requisito de Fuerza de una armadura viene del dataset como
+*modificador* (los 118 valores van de 0 a 5), pero el motor lo comparaba contra la *puntuación*
+(10 a 20). La condición nunca se cumplía, así que **la penalidad de chequeos por armadura no se
+le aplicaba a nadie**. Corregido y con dos tests que lo fijan.
+
+### 4-undecies. Garbo (panache) del Swashbuckler  ✅ HECHO
+
+Reglas confirmadas con el Notebook LM del proyecto (2026-08-19), porque el dataset trae los
+rule elements con `value: null`: la importación se quedó con el selector y el predicado, pero
+no con las progresiones por nivel. Los números viven en `rules/panache.ts`.
+
+- [x] **El garbo es binario**, no un pool: `state.panache` es un booleano. Es la diferencia con
+      los focus points, y es lo que define todo el diseño
+- [x] Interruptor en la fila de contexto, al lado de los hero points
+- [x] **Precise Strike**: +2 y 2d6 en finisher, subiendo de a uno en los niveles 5, 9, 13 y 17.
+      Solo con garbo y solo con armas cuerpo a cuerpo (o desarmado) *agile* o *finesse* — el
+      puño califica
+- [x] **Vivacious Speed reemplaza** el +5 del garbo, no se suma: a nivel 3 son +10, y sin garbo
+      queda la mitad redondeada al múltiplo de 5 de abajo (+5 hasta nivel 10, +10 hasta 18, +15)
+- [x] Se maneja por los **rasgos que tiene el personaje**, no por la clase: con Swashbuckler
+      Dedication se gana Panache sin ser de la clase, y sin Precise Strike
+- [x] Los 5 estilos ya se elegían solos: están tageados `swashbuckler-style` y los resuelve el
+      mecanismo genérico de ChoiceSet
+
+Lo que la hoja **no** calcula, porque depende de qué estés haciendo: el +1 de circunstancia a
+los chequeos que dan garbo, y ganarlo o perderlo (el interruptor es a mano).
+
 ### 5. Deudas conocidas
 
 - El ChoiceSet del tipo de dragón (linaje dracónico) trae la lista embebida en vez de
@@ -248,6 +292,116 @@ comprar y vender; después de una compra la bolsa **sí** se reacomoda, porque t
   la fuente Legacy.
 - El puño usa las estadísticas por defecto (1d4 contundente, agile/finesse/nonlethal): es lo único
   de la hoja que no sale ni del dataset ni de una fuente Legacy verificada.
+
+## Partidas multijugador (nuevo alcance)
+
+Hasta acá la app era de un jugador solo: creás personajes y los mirás. Esto agrega la mesa —
+chat, tiradas compartidas, notas y, al final, voz y video.
+
+**Entra todo en el stack actual.** Supabase Realtime da chat en vivo, tiradas y presencia sin
+agregar un servidor, así que Netlify sigue sirviendo archivos estáticos. Lo único que se sale
+del molde es el video (ver fase 6).
+
+### Decisiones ya tomadas
+
+- **No existe "iniciar la partida".** El GM la crea y genera el link; de ahí en más cualquiera
+  entra cuando quiere y el chat está siempre. Quién está jugando ahora lo dice la *presencia*,
+  no una fila en la base. Se gana simpleza; se pierde poder agrupar el historial por sesión, y
+  eso se cubre con separadores por fecha en el chat.
+- **Invitación solo por link** con token. Sin mails, sin SMTP, sin Edge Functions.
+- **Las tiradas eligen su visibilidad** al tirar: pública, solo para el GM, o solo para uno.
+- **El GM lee las hojas completas** de su mesa. Entre jugadores se ve poco (nombre del jugador,
+  del personaje, clase y nivel).
+
+### Lo que hay que tener en cuenta antes de escribir la primera línea
+
+- **La RLS de `party_members` se muerde la cola.** Una policy sobre esa tabla que pregunte
+  "¿este usuario es miembro?" consultando la misma tabla entra en recursión infinita — es el
+  error clásico de Supabase. Se resuelve con funciones `security definer` (`is_member(party)`,
+  `is_gm(party)`) y usando esas funciones en las policies.
+- **Hace falta una tabla `profiles`** aunque las invitaciones sean por link: para escribir
+  "Gera tiró 18" el navegador necesita un nombre, y `auth.users` no es consultable desde el
+  cliente. Con nombre visible alcanza; el mail no hace falta exponerlo.
+- **Abrir la lectura de `characters` al GM es el cambio más delicado del proyecto.** Hoy la
+  policy es `auth.uid() = user_id` y nada más. Conviene escribirla, probarla con dos cuentas
+  reales y recién después usarla.
+- **El plan gratis de Supabase pausa el proyecto tras una semana sin actividad.** Una mesa
+  quincenal lo va a encontrar pausado; se despausa a mano desde el dashboard.
+
+### Fase 1 — La partida y sus miembros  ✅ HECHO Y VERIFICADO
+
+- [x] `profiles` (id, display_name), con trigger que la crea al registrarse y relleno
+      para las cuentas que ya existían
+- [x] `parties` (nombre, gm_id, invite_token) y `party_members` (rol, character_id)
+- [x] `is_party_member` / `is_party_gm` en `security definer`, y las policies encima
+- [x] Crear partida siembra al GM como miembro, por trigger
+- [x] `join_party_by_token` y `peek_party_by_token`: entrar por link, y poder mirar a dónde
+      lleva el link ANTES de entrar (quien no es miembro todavía no puede ni leer la partida)
+- [x] Pantallas: lista de partidas, crear, copiar link, rotar link
+- [x] Unirse por link, con el token guardado si hace falta iniciar sesión primero
+- [x] Elegir personaje: uno existente o crear uno en el momento (`/characters/new?party=<id>`,
+      que al terminar te sienta y te devuelve a la mesa)
+- [x] **Con quién jugás se elige una vez.** Una vez sentado no hay selector: queda el personaje
+      y un "Cambiar de personaje" aparte, que avisa que eso es para cuando el tuyo murió o se
+      retiró. Un desplegable siempre a mano sugería que había que elegir cada vez que entrás
+- [x] Miembros con presencia en vivo, echar (GM), salir, borrar la partida
+- [x] SQL corrido y circuito verificado en el navegador: crear partida, GM sentado por el
+      trigger, presencia, elegir personaje, link de invitación, rotar el link (el viejo deja
+      de servir) y borrar la partida
+- [ ] **Falta probar con dos cuentas**: que un segundo usuario entre por el link. Es lo único
+      que no se puede verificar desde una sola sesión
+
+Dos cosas que aparecieron al probar:
+
+- **No hay clave foránea de `party_members` a `profiles`** (`user_id` apunta a `auth.users`),
+  así que PostgREST no puede resolver un embed `profiles:user_id (...)`. Los nombres se piden
+  en una segunda consulta. Si algún día se quiere el embed, hay que agregar esa FK.
+- El detector de "faltan las tablas" era demasiado goloso: cualquier mención a *schema cache*
+  caía ahí, incluida la de una relación que no existe. Ahora mira el código del error.
+
+Detalle que va a volver a aparecer: **los errores de Supabase no son `Error`**, son objetos
+planos con `message` y `code`. `String(e)` sobre eso imprime "[object Object]". Para eso está
+`mensajeDeError()` en `party.service.ts`.
+
+### Fase 2 — Chat global
+
+- [ ] `messages` (party_id, user_id, kind text|roll|system, body, roll jsonb, visibility)
+- [ ] Historial persistente, que es el punto: sobrevive a que todos se desconecten
+- [ ] Suscripción por Postgres Changes; mensajes de sistema al entrar y salir
+- [ ] Separadores por fecha, que reemplazan a las "sesiones"
+- [ ] **Decisión de layout pendiente**: el chat tiene que estar siempre visible, así que la
+      pantalla de partida es una columna de chat fija al costado. Falta definir qué va en el
+      resto: ¿la hoja del personaje con el que entraste, embebida? La hoja hoy está pensada
+      para ocupar 1720px de ancho, así que convive mal con una columna de chat al lado.
+
+### Fase 3 — Tirador de dados
+
+- [ ] Tirador libre: cantidad + tipo de dado, y modificador
+- [ ] El resultado va al chat como mensaje `roll`, con el detalle de cada dado
+- [ ] Selector de visibilidad en cada tirada (pública / solo GM / privada)
+- [ ] **Las tiradas de la hoja se publican en el chat**: atacar, salvar, habilidades. Para eso
+      la hoja necesita saber en qué mesa estás sentado — un selector de "partida activa"
+- [ ] `rollFormula()` de `dice.ts` ya hace el trabajo; esto es plomería, no reglas
+
+### Fase 4 — Notas
+
+- [ ] `notes` (party_id, author_id, nombre, texto, visibilidad privada|mesa|gm)
+- [ ] ABM simple dentro de la partida
+- [ ] **Sin edición colaborativa en vivo**: si dos personas editan la misma nota, gana la
+      última que guarda. La edición concurrente de verdad (CRDT) es un proyecto aparte
+
+### Fase 5 — El GM ve las hojas
+
+- [ ] Policy de lectura sobre `characters` para el GM de la mesa donde está sentado el PJ
+- [ ] Vista de solo lectura de la hoja para el GM
+- [ ] Verificación con dos cuentas reales de que un jugador NO ve la hoja de otro
+
+### Fase 6 — Voz y video (último)
+
+- [ ] WebRTC entre navegadores, con Supabase Broadcast como canal de señalización
+- [ ] **Necesita un servidor TURN**, que no es gratis: sin él, dos jugadores detrás de ciertos
+      routers domésticos no se conectan. Alternativa: un tercero (LiveKit, Daily, Jitsi)
+- [ ] En malla directa aguanta 4 o 5 personas; más que eso pide un servidor que mezcle
 
 ## Cómo verificar que algo está bien
 

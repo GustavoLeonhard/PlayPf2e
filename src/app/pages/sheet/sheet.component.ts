@@ -710,6 +710,20 @@ export class SheetComponent implements OnInit {
     if (opcion) this.roll(`Iniciativa (${opcion.label})`, opcion.stat);
   }
 
+  // ----------------------------------------------------------- garbo
+
+  /**
+   * El garbo es binario y dura entre turnos: se prende cuando lo ganás y se
+   * apaga al usar un finisher o al terminar el encuentro. Por eso es un
+   * interruptor y no un contador.
+   */
+  async togglePanache() {
+    const record = this.record();
+    if (!record) return;
+    record.state.panache = !record.state.panache;
+    await this.guardar(record);
+  }
+
   // ---------------------------------------------------------- escudo
 
   /** Raise a Shield: dura hasta el inicio de tu próximo turno, por eso se baja a mano. */
@@ -757,6 +771,113 @@ export class SheetComponent implements OnInit {
     this.lastBlock.set(null);
     await this.guardar(record);
   }
+
+  // ------------------------------------------------- armadura y escudo
+
+  /** Qué defensa se está editando: 'armor', 'shield', o nada. */
+  readonly editingDefense = signal<'armor' | 'shield' | null>(null);
+
+  // ------------------------------------------------------- aprender conjuros
+
+  /**
+   * Un conjuro no se aprende solo al subir de nivel: un mago copia un pergamino,
+   * un máster te regala uno. Desde acá se agregan y se quitan en cualquier momento.
+   *
+   * Qué lista se toca depende de la clase: los espontáneos tienen repertorio, el
+   * mago tiene libro, y los cantrips van aparte en las dos.
+   */
+  readonly agregandoConjuro = signal<number | null>(null);
+
+  /** El libro del mago, resuelto. Vacío para el resto de las clases. */
+  readonly spellbook = computed(() => {
+    const ids = this.record()?.build.spellcasting?.spellbook ?? [];
+    const porId = new Map(this.spellList().map((s) => [s.id, s]));
+    return ids
+      .map((id) => porId.get(id))
+      .filter((s): s is Spell => !!s)
+      .sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+  });
+
+  readonly usaLibro = computed(() => this.sheet()?.spellcasting?.config.source === 'spellbook');
+
+  /** Los que puede aprender de ese rango: de su tradición y que no tenga ya. */
+  aprendibles(rank: number): Spell[] {
+    const sc = this.sheet()?.spellcasting;
+    if (!sc) return [];
+
+    const build = this.record()?.build.spellcasting;
+    const yaTiene = new Set([
+      ...(build?.cantrips ?? []),
+      ...Object.values(build?.repertoire ?? {}).flat(),
+      ...(build?.spellbook ?? []),
+    ]);
+
+    return this.spellList()
+      .filter((s) => (rank === 0 ? s.traits.includes('cantrip') : s.level === rank && !s.traits.includes('cantrip')))
+      .filter((s) => !s.traits.includes('focus'))
+      .filter((s) => !sc.tradition || s.traditions.includes(sc.tradition))
+      .filter((s) => !yaTiene.has(s.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async aprenderConjuro(rank: number, id: string | null) {
+    const record = this.record();
+    if (!record || !id) return;
+
+    const sc = { ...record.build.spellcasting };
+    if (rank === 0) {
+      sc.cantrips = [...(sc.cantrips ?? []), id];
+    } else if (this.usaLibro()) {
+      sc.spellbook = [...(sc.spellbook ?? []), id];
+    } else {
+      const clave = String(rank);
+      sc.repertoire = { ...sc.repertoire, [clave]: [...(sc.repertoire?.[clave] ?? []), id] };
+    }
+
+    record.build.spellcasting = sc;
+    this.agregandoConjuro.set(null);
+    await this.guardar(record);
+  }
+
+  async olvidarConjuro(rank: number, id: string) {
+    const record = this.record();
+    if (!record) return;
+
+    const sc = { ...record.build.spellcasting };
+    if (rank === 0) {
+      sc.cantrips = (sc.cantrips ?? []).filter((x) => x !== id);
+    } else if (this.usaLibro()) {
+      sc.spellbook = (sc.spellbook ?? []).filter((x) => x !== id);
+    } else {
+      const clave = String(rank);
+      sc.repertoire = { ...sc.repertoire, [clave]: (sc.repertoire?.[clave] ?? []).filter((x) => x !== id) };
+      // Si era el signature de ese rango, deja de serlo.
+      if (sc.signature?.[clave] === id) {
+        const signature = { ...sc.signature };
+        delete signature[clave];
+        sc.signature = signature;
+      }
+    }
+
+    record.build.spellcasting = sc;
+    await this.guardar(record);
+  }
+
+  /**
+   * Los rangos a los que se puede aprender algo.
+   *
+   * Un Cleric o un Druid **no aprenden conjuros**: preparan de toda su tradición,
+   * así que ya los tienen todos disponibles. Lo único suyo son los cantrips. Sin
+   * esta distinción, la hoja les ofrecía "aprender" algo que después nadie lee.
+   */
+  readonly rangosAprendibles = computed(() => {
+    const sc = this.sheet()?.spellcasting;
+    if (!sc || sc.config.source === 'list') return [];
+    return Array.from({ length: sc.maxRank }, (_, i) => i + 1);
+  });
+
+  /** Un lanzador que prepara de toda la lista solo suma cantrips. */
+  readonly soloCantrips = computed(() => this.sheet()?.spellcasting?.config.source === 'list');
 
   // ------------------------------------------------------- inventario
 
@@ -920,12 +1041,34 @@ export class SheetComponent implements OnInit {
               group: base.group,
               traits: base.traits,
               range: base.range,
+              acBonus: base.acBonus,
+              dexCap: base.dexCap,
+              checkPenalty: base.checkPenalty,
+              speedPenalty: base.speedPenalty,
+              strength: base.strength,
+              hardness: base.hardness,
+              maxHp: base.maxHp,
             }
           : undefined),
     };
 
     // Un campo vacío vuelve al valor del arma base en vez de guardar basura.
-    for (const clave of ['name', 'damageDice', 'damageDie', 'damageType', 'bonusAttack', 'bonusDamage', 'notes'] as const) {
+    for (const clave of [
+      'name',
+      'damageDice',
+      'damageDie',
+      'damageType',
+      'bonusAttack',
+      'bonusDamage',
+      'notes',
+      'acBonus',
+      'dexCap',
+      'checkPenalty',
+      'speedPenalty',
+      'strength',
+      'hardness',
+      'maxHp',
+    ] as const) {
       const valor = custom[clave];
       if (valor === '' || valor === null || (typeof valor === 'number' && Number.isNaN(valor))) delete custom[clave];
     }

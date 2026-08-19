@@ -930,6 +930,60 @@ describe('armas personalizadas', () => {
   });
 });
 
+describe('armadura personalizada', () => {
+  const chainMail = equipment.find((e) => e.name === 'Chain Mail')!;
+
+  function conArmadura(custom?: object) {
+    const build = humanFighter();
+    build.inventory = [{ id: chainMail.id, quantity: 1, equipped: true, custom: custom as never }];
+    return build;
+  }
+
+  it('sin custom, la armadura sale tal cual el dataset', () => {
+    const sheet = computeCharacter(conArmadura(), null, content);
+    expect(sheet.armor?.name).toBe('Chain Mail');
+    expect(sheet.armor?.acBonus).toBe(chainMail.acBonus);
+    expect(sheet.armor?.custom).toBe(false);
+  });
+
+  it('el bonus de CA del master llega hasta la CA', () => {
+    const base = computeCharacter(conArmadura(), null, content);
+    const tocada = computeCharacter(conArmadura({ acBonus: (chainMail.acBonus ?? 0) + 1 }), null, content);
+
+    expect(tocada.ac.total).toBe(base.ac.total + 1);
+    expect(tocada.armor?.custom).toBe(true);
+  });
+
+  const sigilo = (s: ReturnType<typeof computeCharacter>) => s.skills.find((x) => x.slug === 'stealth')!.stat.total;
+
+  /*
+   * El requisito de Fuerza del dataset es un MODIFICADOR (0 a 5), no una
+   * puntuación. Comparándolo contra la puntuación la condición nunca se cumplía
+   * y la penalidad de chequeos no se le aplicaba a nadie.
+   */
+  it('la penalidad de chequeos se aplica solo si no llegás al requisito de Fuerza', () => {
+    const cumple = computeCharacter(conArmadura({ strength: 0 }), null, content);
+    const noCumple = computeCharacter(conArmadura({ strength: 5 }), null, content);
+
+    expect(sigilo(cumple)).toBeGreaterThan(sigilo(noCumple));
+  });
+
+  it('un 0 es un valor válido: una armadura sin penalidad de chequeos', () => {
+    const sheet = computeCharacter(conArmadura({ strength: 5, checkPenalty: 0 }), null, content);
+    expect(sheet.armor?.checkPenalty).toBe(0);
+
+    // Con el mismo requisito incumplido pero sin penalidad, no se descuenta nada.
+    const conPenalidad = computeCharacter(conArmadura({ strength: 5 }), null, content);
+    expect(sigilo(sheet)).toBeGreaterThan(sigilo(conPenalidad));
+  });
+
+  it('la penalidad de velocidad del master llega a la velocidad', () => {
+    const base = computeCharacter(conArmadura(), null, content);
+    const tocada = computeCharacter(conArmadura({ speedPenalty: -10 }), null, content);
+    expect(tocada.speed.total).toBe(base.speed.total - 5);
+  });
+});
+
 describe('puño', () => {
   it('todo personaje puede pegar un puñetazo, aunque no este en el dataset', () => {
     const sheet = computeCharacter(humanFighter(), null, content);
@@ -1082,5 +1136,100 @@ describe('condiciones', () => {
     const drained = computeCharacter(humanFighter(3), state, content);
     const healthy = computeCharacter(humanFighter(3), emptyState(), content);
     expect(drained.maxHp.total).toBe(healthy.maxHp.total - 3);
+  });
+});
+
+
+describe('garbo (panache)', () => {
+  const rapier = equipment.find((e) => e.name === 'Rapier')!;
+  const greatsword = equipment.find((e) => e.name === 'Greatsword')!;
+
+  /** Un Swashbuckler con un arma finesse equipada. */
+  function duelista(level = 1, arma = rapier) {
+    const build = emptyBuild();
+    build.name = 'Estoque';
+    build.level = level;
+    build.ancestry = 'human';
+    build.class = 'swashbuckler';
+    build.background = backgrounds.find((b) => b.trainedSkills.includes('acrobatics'))!.slug;
+    build.abilityBoosts.ancestry = ['dex', 'cha'];
+    build.abilityBoosts.background = ['dex', 'con'];
+    build.abilityBoosts.class = ['dex'];
+    build.abilityBoosts.level1 = ['dex', 'cha', 'con', 'wis'];
+    build.trainedSkills = ['acrobatics', 'intimidation'];
+    build.inventory = [{ id: arma.id, quantity: 1, equipped: true }];
+    return build;
+  }
+
+  const conGarbo = { ...emptyState(), panache: true };
+  const arma = (sheet: ReturnType<typeof computeCharacter>) => sheet.strikes.find((x) => !x.unarmed)!;
+
+  it('el garbo es un estado, no un pool: se prende y se apaga', () => {
+    expect(computeCharacter(duelista(), null, content).panache?.active).toBe(false);
+    expect(computeCharacter(duelista(), conGarbo, content).panache?.active).toBe(true);
+  });
+
+  it('quien no es Swashbuckler no tiene garbo', () => {
+    expect(computeCharacter(humanFighter(), conGarbo, content).panache).toBeNull();
+  });
+
+  it('Precise Strike suma daño de precisión solo con garbo', () => {
+    const sin = computeCharacter(duelista(), null, content);
+    const con = computeCharacter(duelista(), conGarbo, content);
+
+    expect(arma(con).damage.total - arma(sin).damage.total).toBe(2);
+  });
+
+  it('Precise Strike no aplica con un arma que no es agile ni finesse', () => {
+    const sin = computeCharacter(duelista(1, greatsword), null, content);
+    const con = computeCharacter(duelista(1, greatsword), conGarbo, content);
+
+    expect(arma(con).damage.total).toBe(arma(sin).damage.total);
+  });
+
+  it('el daño de precisión sube en los niveles 5, 9, 13 y 17', () => {
+    const dano = (level: number) => {
+      const sin = arma(computeCharacter(duelista(level), null, content)).damage.total;
+      const con = arma(computeCharacter(duelista(level), conGarbo, content)).damage.total;
+      return con - sin;
+    };
+
+    expect(dano(4)).toBe(2);
+    expect(dano(5)).toBe(3);
+    expect(dano(9)).toBe(4);
+    expect(dano(13)).toBe(5);
+    expect(dano(17)).toBe(6);
+    expect(dano(20)).toBe(6);
+
+    // Y los dados del finisher acompañan al daño plano.
+    expect(computeCharacter(duelista(9), conGarbo, content).panache?.preciseStrike?.finisherDice).toBe(4);
+  });
+
+  it('a nivel 1 el garbo da +5 pies de velocidad', () => {
+    const sin = computeCharacter(duelista(), null, content).speed.total;
+    const con = computeCharacter(duelista(), conGarbo, content).speed.total;
+    expect(con - sin).toBe(5);
+  });
+
+  /*
+   * Vivacious Speed REEMPLAZA el +5 del garbo, no se suma: a nivel 3 son +10 con
+   * garbo, y sin garbo queda la mitad redondeada al múltiplo de 5 de abajo.
+   */
+  it('Vivacious Speed reemplaza al bonus base y deja la mitad sin garbo', () => {
+    const base = computeCharacter(duelista(1), null, content).speed.total;
+
+    const nivel3 = computeCharacter(duelista(3), null, content).speed.total;
+    const nivel3Garbo = computeCharacter(duelista(3), conGarbo, content).speed.total;
+    expect(nivel3 - base).toBe(5);
+    expect(nivel3Garbo - base).toBe(10);
+
+    const nivel7Garbo = computeCharacter(duelista(7), conGarbo, content).speed.total;
+    expect(nivel7Garbo - base).toBe(15);
+    // 15 / 2 = 7,5 y redondea a 5, así que a nivel 7 sin garbo sigue siendo +5.
+    expect(computeCharacter(duelista(7), null, content).speed.total - base).toBe(5);
+
+    expect(computeCharacter(duelista(11), null, content).speed.total - base).toBe(10);
+    expect(computeCharacter(duelista(15), null, content).speed.total - base).toBe(10);
+    expect(computeCharacter(duelista(19), null, content).speed.total - base).toBe(15);
   });
 });

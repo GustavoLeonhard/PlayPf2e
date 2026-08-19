@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 
 import type { CharacterRecord } from '../../core/models/character.model';
 import { CharacterService } from '../../core/services/character.service';
+import { PartyService } from '../../core/services/party.service';
 
 @Component({
   selector: 'app-character-list',
@@ -23,21 +24,31 @@ import { CharacterService } from '../../core/services/character.service';
           <a class="btn primary" routerLink="/characters/new">Crear el primero</a>
         </div>
       } @else {
-        <div class="grid">
+        <div class="lista">
           @for (pj of svc.characters(); track pj.id) {
             <div class="card pj">
               <a class="pjlink" [routerLink]="['/characters', pj.id]">
                 @if (pj.build.portrait; as foto) {
                   <img class="portrait" [src]="foto" [alt]="pj.build.name" />
                 }
-                <div>
+                <div class="datos">
                   <h2>{{ pj.build.name || 'Sin nombre' }}</h2>
                   <p class="muted">
-                    {{ pj.build.ancestry | titlecase }} · {{ pj.build.class | titlecase }}
+                    {{ pj.build.ancestry | titlecase }} · {{ pj.build.class | titlecase }} ·
+                    <span class="level">Nivel {{ pj.level }}</span>
                   </p>
-                  <span class="level">Nivel {{ pj.level }}</span>
                 </div>
+
+                <!-- En qué mesa está sentado, si es que está en alguna -->
+                @if (mesas().get(pj.id); as partidas) {
+                  <span class="mesas">
+                    @for (nombre of partidas; track nombre) {
+                      <span class="tag mesa">{{ nombre }}</span>
+                    }
+                  </span>
+                }
               </a>
+
               <div class="actions">
                 <a class="btn" [routerLink]="['/characters', pj.id, 'level-up']">Subir nivel</a>
                 <button class="btn danger ghost" (click)="confirmDelete(pj)">Borrar</button>
@@ -70,17 +81,19 @@ import { CharacterService } from '../../core/services/character.service';
       margin-bottom: 1rem;
     }
 
-    .grid {
-      display: grid;
-      gap: 0.8rem;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    /* Cada personaje ocupa la fila entera: se leen en vertical de un vistazo. */
+    .lista {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
     }
 
     .pj {
       display: flex;
-      flex-direction: column;
+      align-items: center;
       justify-content: space-between;
-      gap: 0.8rem;
+      gap: 1rem;
+      flex-wrap: wrap;
     }
 
     .pjlink {
@@ -88,7 +101,30 @@ import { CharacterService } from '../../core/services/character.service';
       text-decoration: none;
       display: flex;
       align-items: center;
-      gap: 0.7rem;
+      gap: 0.8rem;
+      flex: 1 1 20rem;
+      min-width: 0;
+    }
+
+    .datos h2 {
+      margin: 0;
+    }
+
+    .datos p {
+      margin: 0.15rem 0 0;
+    }
+
+    .mesas {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-left: auto;
+      padding-left: 0.8rem;
+    }
+
+    .mesa {
+      color: var(--accent);
+      border-color: var(--accent);
     }
 
     .portrait {
@@ -100,10 +136,7 @@ import { CharacterService } from '../../core/services/character.service';
     }
 
     .level {
-      display: inline-block;
-      margin-top: 0.4rem;
       color: var(--accent);
-      font-size: 0.85rem;
     }
 
     .actions {
@@ -137,10 +170,25 @@ import { CharacterService } from '../../core/services/character.service';
 })
 export class CharacterListComponent {
   readonly svc = inject(CharacterService);
+  private parties = inject(PartyService);
   toDelete = signal<CharacterRecord | null>(null);
 
+  /** id del personaje -> nombres de las mesas donde está sentado. */
+  readonly mesas = signal<Map<string, string[]>>(new Map());
+
   constructor() {
-    void this.svc.list();
+    void this.cargar();
+  }
+
+  private async cargar() {
+    await this.svc.list();
+    // Sin Supabase no hay partidas; la lista de personajes anda igual.
+    if (!this.parties.disponible) return;
+    try {
+      this.mesas.set(await this.parties.partiesByCharacter());
+    } catch {
+      // Si todavía no se corrió el SQL de partidas, no es motivo para romper esta pantalla.
+    }
   }
 
   confirmDelete(pj: CharacterRecord) {

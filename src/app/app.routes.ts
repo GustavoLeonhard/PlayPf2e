@@ -30,5 +30,23 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./pages/level-up/level-up.component').then((m) => m.LevelUpComponent),
   },
+  {
+    path: 'parties',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/party-list/party-list.component').then((m) => m.PartyListComponent),
+  },
+  {
+    path: 'parties/:id',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/party/party.component').then((m) => m.PartyComponent),
+  },
+  /*
+   * Sin guard a propósito: el link de invitación se abre sin sesión, y el propio
+   * componente guarda el token y manda a iniciar sesión.
+   */
+  {
+    path: 'join/:token',
+    loadComponent: () => import('./pages/join/join.component').then((m) => m.JoinComponent),
+  },
   { path: '**', redirectTo: 'characters' },
 ];
