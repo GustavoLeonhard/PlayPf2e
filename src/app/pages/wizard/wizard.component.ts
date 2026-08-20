@@ -493,6 +493,21 @@ export class WizardComponent {
     this.patch((b) => (b.inventory = b.inventory.filter((i) => i.id !== id)));
   }
 
+  /**
+   * La cantidad se escribe en la mochila.
+   *
+   * Volver a elegir el mismo objeto en la lista no alcanzaba: el picker no
+   * vuelve a emitir si el id seleccionado no cambió, así que no había forma de
+   * llevar dos antorchas.
+   */
+  setGearQuantity(id: string, valor: string) {
+    const cantidad = Math.max(1, Math.round(Number(valor)) || 1);
+    this.patch((b) => {
+      const item = b.inventory.find((i) => i.id === id);
+      if (item) item.quantity = cantidad;
+    });
+  }
+
   gearName = (id: string) => this.equipment().find((e) => e.id === id)?.name ?? id;
 
   gearPrice = (id: string) => priceToCp(this.equipment().find((e) => e.id === id)?.price);

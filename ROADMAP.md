@@ -124,8 +124,9 @@ El inventario ya no es solo de la creación: se maneja durante la partida.
 - [x] **Shield Block**: absorbe daño hasta su hardness y el resto se lo llevan los dos
 - [x] Reparar
 
-La armadura tiene bonus a la CA, tope de Destreza, penalidad de chequeos (que se ignora si
-cumplís el requisito de Fuerza) y penalidad de velocidad.
+La armadura tiene bonus a la CA, tope de Destreza, penalidad de chequeos y penalidad de
+velocidad. **El requisito de Fuerza perdona la penalidad de VELOCIDAD, no la de chequeos**
+(confirmado con Notebook LM el 2026-08-20; antes lo teníamos al revés).
 
 **Hallazgo pendiente de resolver**: el dataset trae \`hardness\` y \`maxHp\` para las 134
 armaduras (igual que para los escudos), pero **los 134 registros están en 0** — a diferencia de
@@ -339,6 +340,121 @@ con un importador contra AoN Legacy, igual que se hizo con las condiciones.
       cuerpo/distancia, dados, tipo, fatal, deadly, bonus, traits, notas) y un botón para
       agregar en cada una de las dos secciones de ataques. Usan la proficiencia unarmed, igual
       que el puño, y el ataque a distancia usa Destreza automáticamente como corresponde
+
+### 4-quaterdecies. Nivel editable y modal para listas largas  ✅ HECHO
+
+- [x] **El nivel se corrige a mano**: un cuadro de número en la cabecera (al lado de "Subir de
+      nivel"), no un botón de una sola dirección. Cambiarlo recalcula toda la hoja sola —nada
+      nuevo ahí, ya salía todo de `computeCharacter()`— y sirve tanto para corregir un
+      mis-click como para mirar cómo se vería el personaje en otro nivel
+- [x] **Red de seguridad para cuando el salto deja huecos**: si tocás el nivel a mano y te
+      saltás niveles con dotes o aumentos de habilidad sin elegir, ahora aparece como
+      advertencia ("Falta elegir: Dote de clase (nivel 4)") en vez de faltar en silencio. Esto
+      salió de conectar `pendingSlots()` de `progression.ts` —que ya existía, pero no la usaba
+      nadie— a las advertencias del motor. De paso, esto también agarra huecos viejos: un
+      personaje armado con el asistente antes de esta función y que se había saltado algo
+      ahora lo va a mostrar
+- [x] **Modal para listas largas de dotes**: el panel de "+ Agregar" en Rasgos y dotes mostraba
+      hasta 40 resultados apretados dentro del acordeón, empujando el resto de la hoja para
+      abajo. Ahora se ven las primeras 12 con un botón "Ver todas (147)" que abre un modal
+      —mismo patrón de `.backdrop`/`.dialog` que ya usaba borrar un personaje— con la lista
+      completa, más cómoda de recorrer y con la misma búsqueda compartida
+- [x] **Descripción inline al elegir**: un ⓘ en cada fila de las listas de "elegir algo" (las
+      dotes, en el panel chico y en el modal, y el catálogo del inventario). A diferencia del
+      resto de las fichas, **no sale en el rincón de las tiradas sino debajo de la fila**, con
+      letra más chica: estás comparando opciones y conviene leer sin perder de vista la lista —
+      y dentro de un modal un cartel en la esquina quedaría tapado. Una sola abierta a la vez,
+      para que la lista no se estire de golpe
+
+**Nota sobre los `<select>` nativos**: los desplegables que quedan (aprender un conjuro, elegir
+focus spell) no pueden llevar el ⓘ, porque un `<option>` de HTML solo admite texto plano. Si
+hiciera falta ahí, habría que reemplazarlos por una lista como la de las dotes.
+
+### 4-quindecies. Correcciones sobre Vevo  ✅ HECHO (menos una)
+
+- [x] **Cantidad en el equipo del asistente**: volver a elegir el mismo objeto en la lista no
+      sumaba una segunda unidad, porque el picker no vuelve a emitir si el id seleccionado no
+      cambió. Ahora la mochila tiene un campo de cantidad, igual que el inventario de la hoja
+- [x] **Tilde "Ignorar el peso"** al lado del título del Inventario (`build.ignoreBulk`): el
+      bulk se sigue mostrando —es información útil— pero deja de avisar por encumbered ni por
+      pasarse del máximo. Para eso el acordeón ahora acepta un control al costado del título
+      (`[acc-extra]`), porque el encabezado era un `<button>` y no se puede meter un checkbox
+      adentro de uno
+- [x] **Faltaban iconos de descripción** en Covered Reload, One Shot One Kill y Alchemical
+      Crafting: `fichas()` buscaba solo en `class-features`, pero un rasgo activo puede venir de
+      cualquiera de los tres packs — los deeds del Gunslinger viven en `actions` y un GrantItem
+      puede otorgar una dote suelta. Ahora busca en los tres
+- [x] **Dote repetida**: una dote otorgada por un rasgo y además elegida a mano aparecía dos
+      veces (Alchemical Crafting en Vevo). Se muestra una sola, la elegida, que es la que se
+      puede sacar
+- [x] **"No encuentro Fleet"**: no faltaba en el dataset — estaba tomada como *dote adicional*,
+      y las dotes ya tomadas se filtraban de las listas sin decir nada. Ahora aparecen marcadas
+      **"ya la tenés"** (deshabilitadas en el picker del asistente, sin botón de agregar en la
+      hoja). Desaparecer sin explicación se leía como un agujero en los datos
+- [x] Los avisos de slot pendiente ahora dicen **dónde** resolverlo ("se elige en Rasgos y
+      dotes, o al subir de nivel")
+
+**Descartado**: la diferencia de Constitución con pathbuilder NO era por boosts alternativos de
+ancestría — esa regla no se usa en la mesa (confirmado). Ver abajo: el hilo real es la Fuerza.
+
+**Pendiente de confirmar con Notebook LM — penalidad de velocidad de la armadura**: hoy la
+penalidad de velocidad se aplica **siempre**, sin mirar el requisito de Fuerza de la armadura.
+La penalidad de *chequeos* sí lo mira (se arregló antes). Falta confirmar la regla: si cumplís
+el requisito de Fuerza, ¿la penalidad de velocidad se **reduce en 5 pies**, o se ignora entera?
+Con Vevo no cambia el número (Fuerza +1 contra un requisito de +2, no lo cumple), pero está mal
+para cualquiera que sí lo cumpla.
+
+### 4-sexdecies. Diagnóstico sobre Vevo (velocidad y sigilo)  ✅ EXPLICADO
+
+Las dos diferencias contra roll20 salen del **mismo lugar**: el requisito de Fuerza de la
+armadura. Vevo lleva **Scale Mail** (requiere Fuerza +2, penalidad de chequeos −2, de velocidad
+−5) y en nuestra hoja tiene **Fuerza +1**, así que no lo cumple:
+
+| | acá | roll20 | por qué |
+|---|---|---|---|
+| Velocidad | 15 | 20 | enano 20 − 5 de la Scale Mail |
+| Sigilo (nv 4) | 10 | 12 | −2 de penalidad de chequeos de la armadura |
+
+Con Fuerza +2 los dos números coinciden con roll20. O sea que **los boosts de atributo cargados
+acá no son los del personaje real** — no es un error de cálculo. Queda para el usuario comparar
+y corregir.
+
+- [x] La velocidad ahora **muestra su desglose** (¿por qué?) como el resto de las estadísticas:
+      sin eso no había forma de ver que el −5 venía de la armadura y no del peso
+
+### 4-septdecies. Atributos editables  ✅ HECHO
+
+- [x] La **puntuación de cada atributo se escribe a mano** (`build.abilityOverrides`) y pisa la
+      que sale de los boosts. Cambiarla recalcula la hoja entera sola —modificador, CA, HP,
+      salvaciones, habilidades, ataques, CD— porque todo eso deriva de la puntuación dentro de
+      `computeCharacter()`. Antes, corregir un número obligaba a rehacer los boosts
+- [x] El valor escrito a mano se ve distinto (borde punteado, color de acento) y su desglose
+      trae un **"volver a los boosts"** para deshacerlo
+- [x] El **"¿por qué?"** se reemplazó por el ⓘ que ya se usa en el resto de la hoja — en los
+      atributos y también en velocidad, percepción y salvaciones, para que el mismo gesto se
+      vea igual en todos lados
+
+Sirve como escape para lo que la app no modela: un personaje traído de otra app, un item que
+sube un atributo, una bendición del máster.
+
+**Confirmación del diagnóstico anterior**: probando esto sobre Vevo, subir Fuerza de 12 a 14
+llevó el Sigilo de 10 a **12**, que es exactamente lo que muestra roll20 — porque con Fuerza +2
+cumple el requisito de la Scale Mail y se va la penalidad de chequeos. La **velocidad siguió en
+15**, que es el bug de reglas todavía sin arreglar (la penalidad de velocidad no mira el
+requisito de Fuerza).
+
+### 4-octodecies. Regla de armadura corregida y sin validación de dinero  ✅ HECHO
+
+- [x] **El requisito de Fuerza de la armadura perdona la penalidad de velocidad, no la de
+      chequeos** — estaba implementado exactamente al revés. Confirmado con Notebook LM. Ahora:
+      la de chequeos (Sigilo, Acrobacias…) se aplica siempre, y la de velocidad solo si NO
+      llegás al requisito. Verificado con Durin: al subirle Fuerza al requisito, la velocidad
+      pasó de 15 a 20 y el Sigilo mantuvo su −2
+- [x] **Fuera la validación de monedas**: no avisa más si el equipo cuesta más que los 15 gp
+      iniciales, y el botón de comprar ya no se deshabilita por no tener plata. El presupuesto
+      se sigue mostrando como referencia. En la mesa el equipo entra por caminos que la app no
+      ve —botín, regalos, un PJ traído de otra app— y avisar por eso era ruido permanente
+- [x] Orden de secciones: **Favoritos primera**, y **Habilidades antes que Rasgos y dotes**
 
 ### 5. Deudas conocidas
 

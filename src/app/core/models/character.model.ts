@@ -177,6 +177,14 @@ export interface CharacterBuild {
    */
   favorites: Favorite[];
   abilityBoosts: AbilityBoosts;
+  /**
+   * Puntuación escrita a mano, que pisa la que sale de los boosts.
+   *
+   * Los boosts son la fuente normal, pero no siempre alcanzan: un personaje
+   * traído de otra app, un item que sube un atributo, una bendición del máster.
+   * Antes de esto, la única forma de arreglar un número era rehacer los boosts.
+   */
+  abilityOverrides?: Partial<Record<Ability, number>>;
   choices: Choice[];
   /** Skills entrenadas por eleccion libre de clase (las adicionales). */
   trainedSkills: string[];
@@ -186,6 +194,11 @@ export interface CharacterBuild {
    */
   languages: string[];
   inventory: InventoryItem[];
+  /**
+   * Ignorar la carga: muchas mesas no llevan la cuenta del bulk. Con esto
+   * prendido la hoja deja de avisar que estás encumbered o pasado del máximo.
+   */
+  ignoreBulk?: boolean;
   /** Garras, colmillos, púas… ver NaturalWeapon. */
   naturalWeapons: NaturalWeapon[];
   /** Advertencias que el usuario marcó como resueltas (por id, ver Warning). */

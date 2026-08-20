@@ -12,7 +12,7 @@ import {
   type NaturalWeapon,
 } from '../../core/models/character.model';
 import { ABILITIES, ABILITY_NAMES, PROFICIENCY_NAMES } from '../../core/models/content.model';
-import type { Equipment, Feat, Spell } from '../../core/models/content.model';
+import type { Ability, Equipment, Feat, Spell } from '../../core/models/content.model';
 import { archetypeFeatAvailable, isArchetypeFeat, ownedDedications } from '../../core/rules/archetypes';
 import { CONDITION_BY_ID } from '../../core/rules/conditions';
 import { criticalTotal, rollFormula, type DiceRoll } from '../../core/rules/dice';
@@ -94,6 +94,21 @@ export class SheetComponent implements OnInit {
     await this.characters.save(record);
   }
 
+  /**
+   * El nivel se corrige a mano: es un número, no una acción irreversible como
+   * "Subir de nivel". Cambiarlo recalcula toda la hoja sola (todo sale de
+   * `computeCharacter`), y si el salto deja huecos —dotes o aumentos de
+   * habilidad sin elegir en algún nivel de por medio— quedan como advertencia
+   * en vez de faltar en silencio.
+   */
+  async setLevel(valor: string) {
+    const record = this.record();
+    if (!record) return;
+    const nivel = Math.max(1, Math.min(20, Math.round(Number(valor)) || record.build.level));
+    record.build.level = nivel;
+    await this.guardar(record);
+  }
+
   /** El input `id` viene del router: no esta disponible en el constructor. */
   ngOnInit() {
     void this.load();
@@ -135,20 +150,17 @@ export class SheetComponent implements OnInit {
   readonly rangedStrikes = computed(() => this.sheet()?.strikes.filter((s) => s.ranged) ?? []);
 
   /**
-   * Rasgos y dotes agrupados por origen. Se muestran los grupos que tengan algo:
-   * un personaje de nivel 1 no tiene dotes generales todavia.
+   * Rasgos y dotes agrupados por origen. Las cinco categorías se muestran
+   * siempre, aunque estén vacías: son editables, y si se ocultan hasta tener
+   * algo no hay dónde apretar "+ Agregar".
    */
   readonly featGroups = computed(() => {
     const sheet = this.sheet();
     if (!sheet) return [];
 
-    const etiquetas: { key: FeatSource; label: string }[] = [
-      { key: 'ancestry', label: 'Ancestría' },
-      { key: 'class', label: 'Clase' },
-      { key: 'skill', label: 'Habilidad' },
-      { key: 'general', label: 'Generales' },
-      { key: 'bonus', label: 'Adicionales' },
-    ];
+    const etiquetas = (Object.entries(SheetComponent.LABEL_DE_SOURCE) as [FeatSource, string][]).map(
+      ([key, label]) => ({ key, label }),
+    );
 
     // Mismo shape para las dos fuentes (con `slot: null` de relleno en los
     // rasgos estructurales) para no necesitar angostar un union en la plantilla:
@@ -165,12 +177,19 @@ export class SheetComponent implements OnInit {
       })),
     ];
 
-    // Las cinco categorías se muestran siempre, aunque estén vacías: son
-    // editables, y si se ocultan hasta tener algo no hay dónde apretar "+".
+    /*
+     * Una misma dote puede llegar por dos caminos —otorgada por un rasgo y
+     * además elegida a mano— y aparecía repetida. Se queda la elegida, que es
+     * la que se puede sacar.
+     */
+    const sinRepetir = todos.filter(
+      (f, i) => !f.id || todos.findIndex((otro) => otro.id === f.id && otro.esDote === true) === -1 || f.esDote,
+    );
+
     return etiquetas.map(({ key, label }) => ({
       key,
       label,
-      items: todos.filter((f) => f.source === key).sort((a, b) => a.level - b.level),
+      items: sinRepetir.filter((f) => f.source === key).sort((a, b) => a.level - b.level),
     }));
   });
 
@@ -283,6 +302,42 @@ export class SheetComponent implements OnInit {
     await this.toggleLanguage(limpio);
   }
 
+  // -------------------------------------------------------------- atributos
+
+  /**
+   * La puntuación se puede escribir a mano y pisa la que sale de los boosts.
+   *
+   * Cambiarla recalcula la hoja entera sola —modificador, CA, HP, salvaciones,
+   * habilidades, ataques, CD— porque todo eso deriva de la puntuación dentro de
+   * `computeCharacter`. Sin esto, corregir un número obligaba a rehacer los
+   * boosts, que es un camino largo para algo que a veces viene de afuera (un
+   * personaje traído de otra app, un item, una bendición del máster).
+   */
+  async setAbilityScore(ability: Ability, valor: string) {
+    const record = this.record();
+    if (!record) return;
+
+    const numero = Math.max(1, Math.min(30, Math.round(Number(valor))));
+    if (!Number.isFinite(numero)) return;
+
+    record.build.abilityOverrides = { ...(record.build.abilityOverrides ?? {}), [ability]: numero };
+    await this.guardar(record);
+  }
+
+  /** Volver al valor que sale de los boosts. */
+  async clearAbilityOverride(ability: Ability) {
+    const record = this.record();
+    if (!record) return;
+
+    const overrides = { ...(record.build.abilityOverrides ?? {}) };
+    delete overrides[ability];
+    record.build.abilityOverrides = overrides;
+    await this.guardar(record);
+  }
+
+  esAbilityManual = (ability: Ability): boolean =>
+    this.record()?.build.abilityOverrides?.[ability] !== undefined;
+
   // ------------------------------------------------------------------ visión
 
   /** La visión que da la ancestría sola, sin el override: para mostrarla en la opción del selector. */
@@ -325,13 +380,30 @@ export class SheetComponent implements OnInit {
     bonus: 'bonusFeat',
   };
 
-  opcionesDote(source: FeatSource): Feat[] {
+  static readonly LABEL_DE_SOURCE: Record<FeatSource, string> = {
+    ancestry: 'Ancestría',
+    class: 'Clase',
+    skill: 'Habilidad',
+    general: 'Generales',
+    bonus: 'Adicionales',
+  };
+
+  /** La plantilla solo puede leer contra la instancia, no contra la clase. */
+  readonly labelDeSource = SheetComponent.LABEL_DE_SOURCE;
+
+  /** Cuántos resultados entran en el panel chico antes de mandar a "ver todas". */
+  private static readonly DOTES_EN_PANEL = 12;
+
+  /**
+   * Sin límite, para saber cuántas hay en total y decidir si hace falta el
+   * botón "ver todas" — y para la lista completa dentro del modal.
+   */
+  private opcionesDoteSinLimite(source: FeatSource): Feat[] {
     const index = this.index();
     const build = this.record()?.build;
     if (!index || !build) return [];
 
     const busqueda = this.doteSearch().toLowerCase().trim();
-    const yaTomadas = new Set(build.choices.map((c) => c.id));
     const owned = ownedDedications(
       build.choices.map((c) => (c.id ? index.featById.get(c.id) : undefined)).filter((f): f is Feat => !!f),
     );
@@ -346,10 +418,57 @@ export class SheetComponent implements OnInit {
         if (source === 'class' && isArchetypeFeat(f)) return archetypeFeatAvailable(f, owned);
         return !trait || f.traits.includes(trait);
       })
-      .filter((f) => f.maxTakable > 1 || !yaTomadas.has(f.id))
       .filter((f) => !busqueda || f.name.toLowerCase().includes(busqueda))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .slice(0, 40);
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Las que ya tenés no se sacan de la lista: se muestran sin el botón de
+   * agregar. Desaparecer sin explicación se lee como que faltan en el dataset —
+   * sobre todo si la tomaste desde otra categoría.
+   */
+  yaTenesDote(f: Feat): boolean {
+    const build = this.record()?.build;
+    if (!build || f.maxTakable > 1) return false;
+    return build.choices.some((c) => c.id === f.id);
+  }
+
+  /** Las primeras 12, para el panel chico dentro del acordeón. */
+  opcionesDote(source: FeatSource): Feat[] {
+    return this.opcionesDoteSinLimite(source).slice(0, SheetComponent.DOTES_EN_PANEL);
+  }
+
+  /** Todas, para la lista dentro del modal — ahí sí hay espacio para scrollear. */
+  opcionesDoteCompletas(source: FeatSource): Feat[] {
+    return this.opcionesDoteSinLimite(source);
+  }
+
+  /** Si hay más de las que entran en el panel chico, vale la pena ofrecer "ver todas". */
+  hayMasDotes(source: FeatSource): boolean {
+    return this.opcionesDoteSinLimite(source).length > SheetComponent.DOTES_EN_PANEL;
+  }
+
+  /**
+   * La lista completa se ve mejor en un modal que apretada dentro del
+   * acordeón: con 30 o 40 resultados el panel chico empujaba el resto de la
+   * hoja para abajo y era incómodo de recorrer.
+   */
+  readonly doteModal = signal<FeatSource | null>(null);
+
+  /**
+   * Qué fila de una lista de "elegir algo" tiene la descripción abierta: sirve
+   * para las dotes y para el catálogo del inventario.
+   *
+   * Acá la descripción va INLINE debajo de la fila, no en el rincón de las
+   * tiradas como el resto de las fichas: estás eligiendo entre varias y querés
+   * comparar sin perder de vista la lista — y dentro de un modal, un cartel en
+   * la esquina quedaría tapado. Una sola abierta a la vez, para que la lista no
+   * se estire de golpe.
+   */
+  readonly descripcionAbierta = signal<string | null>(null);
+
+  toggleDescripcion(id: string) {
+    this.descripcionAbierta.update((abierta) => (abierta === id ? null : id));
   }
 
   async agregarDote(source: FeatSource, featId: string | null) {
@@ -359,6 +478,7 @@ export class SheetComponent implements OnInit {
     const choice: Choice = { level: record.build.level, slot: SheetComponent.SLOT_DE_SOURCE[source], id: featId };
     record.build.choices = [...record.build.choices, choice];
     this.agregandoDote.set(null);
+    this.doteModal.set(null);
     this.doteSearch.set('');
     await this.guardar(record);
   }
@@ -845,12 +965,23 @@ export class SheetComponent implements OnInit {
       if (limpio) salida.set(clave, { titulo, cuerpo: limpio });
     };
 
-    // Rasgos de clase y ancestría, y las dotes elegidas.
+    /*
+     * Un rasgo activo puede venir de cualquiera de los tres packs, no solo de
+     * class-features: los deeds del Gunslinger (Covered Reload, One Shot One
+     * Kill) viven en `actions`, y un GrantItem puede otorgar una dote suelta
+     * (Munitions Crafter otorga Alchemical Crafting). Buscando en uno solo,
+     * esos se quedaban sin descripción y por lo tanto sin el ⓘ.
+     */
+    const descripcionDe = (id: string) =>
+      index.featureById.get(id)?.description ??
+      index.actionById.get(id)?.description ??
+      index.featById.get(id)?.description;
+
     for (const f of sheet.features) {
-      if (f.id) guardar(`rasgo:${f.id}`, f.name, index.featureById.get(f.id)?.description);
+      if (f.id) guardar(`rasgo:${f.id}`, f.name, descripcionDe(f.id));
     }
     for (const f of sheet.feats) {
-      guardar(`dote:${f.id}`, f.name, index.featById.get(f.id)?.description ?? index.featureById.get(f.id)?.description);
+      guardar(`dote:${f.id}`, f.name, descripcionDe(f.id));
     }
 
     // Todo lo que está en la mochila, por posición: es lo que tienen a mano las
@@ -1079,9 +1210,6 @@ export class SheetComponent implements OnInit {
 
   priceOf = (item: Equipment) => priceToCp(item.price);
 
-  /** Si no te alcanza, el botón de comprar queda deshabilitado en vez de no hacer nada. */
-  canAfford = (item: Equipment) => priceToCp(item.price) <= (this.record()?.state.coins ?? 0);
-
   private async guardar(record: CharacterRecord) {
     this.record.set({ ...record });
     await this.characters.save(record);
@@ -1093,15 +1221,16 @@ export class SheetComponent implements OnInit {
     const equipo = this.index()?.equipmentById.get(id);
     if (!record) return;
 
+    // Comprar no valida que te alcance: la bolsa puede quedar en cero y listo.
+    // En la mesa la plata entra y sale por caminos que la app no ve.
     const precio = priceToCp(equipo?.price);
-    if (pagar && precio > (record.state.coins ?? 0)) return;
 
     const existente = record.build.inventory.find((i) => i.id === id && !i.custom);
     if (existente) existente.quantity += 1;
     else record.build.inventory = [...record.build.inventory, { id, quantity: 1, equipped: false }];
 
     if (pagar) {
-      record.state.coins = (record.state.coins ?? 0) - precio;
+      record.state.coins = Math.max(0, (record.state.coins ?? 0) - precio);
       record.state.purse = splitCp(record.state.coins);
     }
     this.addingItem.set(false);
@@ -1150,6 +1279,18 @@ export class SheetComponent implements OnInit {
     if (!record) return;
     const cantidad = Math.max(1, Math.round(Number(valor) || 1));
     record.build.inventory = record.build.inventory.map((it, i) => (i === index ? { ...it, quantity: cantidad } : it));
+    await this.guardar(record);
+  }
+
+  /**
+   * Ignorar la carga. El bulk se sigue mostrando —es información útil— pero
+   * deja de tratarse como un problema: sin advertencia de encumbered ni de
+   * pasarte del máximo.
+   */
+  async setIgnoreBulk(valor: boolean) {
+    const record = this.record();
+    if (!record) return;
+    record.build.ignoreBulk = valor;
     await this.guardar(record);
   }
 

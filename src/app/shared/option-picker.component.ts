@@ -13,6 +13,12 @@ export interface PickerOption {
   /** Texto libre del dataset: se muestra como advertencia, nunca bloquea. */
   prerequisites?: string[];
   source?: string;
+  /**
+   * No se puede elegir, pero se muestra igual con el motivo. Sacarla de la
+   * lista sin más deja al jugador buscando algo que nunca va a aparecer.
+   */
+  deshabilitada?: boolean;
+  motivo?: string;
 }
 
 /**
@@ -37,10 +43,16 @@ export interface PickerOption {
               <button
                 class="row"
                 [class.active]="opt.id === selectedId()"
+                [class.deshabilitada]="opt.deshabilitada"
+                [disabled]="opt.deshabilitada"
+                [title]="opt.motivo ?? ''"
                 type="button"
                 (click)="selectedId.set(opt.id)"
               >
                 <span class="name">{{ opt.name }}</span>
+                @if (opt.motivo) {
+                  <span class="motivo">{{ opt.motivo }}</span>
+                }
                 @if (opt.level !== undefined) {
                   <span class="lvl muted">{{ opt.level }}</span>
                 }
@@ -134,6 +146,18 @@ export interface PickerOption {
 
     .name {
       flex: 1;
+    }
+
+    .row.deshabilitada {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .motivo {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--accent);
     }
 
     .lvl {

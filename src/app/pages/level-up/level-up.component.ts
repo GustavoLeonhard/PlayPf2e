@@ -190,7 +190,15 @@ export class LevelUpComponent implements OnInit {
         if (slot.featCategory === 'class' && isArchetypeFeat(f)) return archetypeFeatAvailable(f, owned);
         return !trait || f.traits.includes(trait);
       })
-      .filter((f) => f.maxTakable > 1 || !alreadyTaken.has(f.id));
+      /*
+       * Las que ya tenés se muestran deshabilitadas en vez de desaparecer: si
+       * una dote se toma de otra categoría (Fleet como dote adicional, por
+       * ejemplo) y después la buscás acá, no aparecer sin explicación se lee
+       * como que falta en el dataset.
+       */
+      .map((f) =>
+        f.maxTakable > 1 || !alreadyTaken.has(f.id) ? f : { ...f, deshabilitada: true, motivo: 'ya la tenés' },
+      );
   }
 
   pick(slot: PendingSlot, value: string | null) {

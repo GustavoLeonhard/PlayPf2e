@@ -28,6 +28,7 @@ import {
 } from './spellcasting';
 import { languageSlots } from './languages';
 import { PANACHE_SPEED_BONUS, preciseStrike, vivaciousSpeed } from './panache';
+import { pendingSlots } from './progression';
 import { STARTING_MONEY_CP, formatCp, priceToCp } from './money';
 import { PROFICIENCY_BONUS, SKILLS, abilityMod, applyBoost } from './tables';
 
@@ -248,7 +249,7 @@ export interface CharacterSheet {
    * hasta 5 + Fuerza sin penalidad, y no podes cargar mas de 10 + Fuerza.
    * Los objetos "L" (livianos) valen 0.1 cada uno, como los trae el dataset.
    */
-  bulk: { carried: number; encumberedAt: number; max: number; encumbered: boolean };
+  bulk: { carried: number; encumberedAt: number; max: number; encumbered: boolean; ignorado: boolean };
   /** Vision de la ancestria: normal, low-light-vision o darkvision. */
   vision: string;
   /**
@@ -534,6 +535,15 @@ function computeAbilities(
     if (picks.length < 4) warnings.push(`Faltan ${4 - picks.length} boosts de atributo de nivel ${lvl}.`);
   }
 
+  /*
+   * Lo escrito a mano gana. Va al final para que pise el resultado de los
+   * boosts, no para que los boosts se le sumen encima: si escribiste 14, querés
+   * 14, no 14 más lo que traiga la ancestría.
+   */
+  for (const [ability, valor] of Object.entries(build.abilityOverrides ?? {})) {
+    if (typeof valor === 'number' && Number.isFinite(valor)) scores[ability as Ability] = valor;
+  }
+
   return scores;
 }
 
@@ -658,6 +668,20 @@ export function computeCharacter(
   if (!pf2class) warnings.push('Falta elegir una clase.');
   if (!ancestry) warnings.push('Falta elegir una ancestría.');
   if (!background) warnings.push('Falta elegir un trasfondo.');
+
+  /*
+   * Slots de dote/aumento de habilidad sin llenar, de cualquier nivel hasta el
+   * actual. Esto es lo que hace seguro poder tocar el nivel a mano: si saltás
+   * de 3 a 6 sin pasar por el asistente, acá aparece cada hueco que dejaste,
+   * en vez de que la hoja se quede corta en silencio.
+   */
+  for (const slot of pendingSlots(build, pf2class)) {
+    const donde =
+      slot.slot === 'skillIncrease'
+        ? 'se elige al subir de nivel'
+        : 'se elige en Rasgos y dotes, o al subir de nivel';
+    warnings.push(`Falta elegir: ${slot.label} (nivel ${slot.level}) — ${donde}.`);
+  }
 
   // --- features otorgados automaticamente hasta el nivel actual
   // El origen se guarda desde el principio: la hoja agrupa los rasgos por de donde
@@ -845,15 +869,14 @@ export function computeCharacter(
       ...proficiencyMods(rank, level, def.name),
       ...conditionModifiers(state, [`skill:${def.slug}`, `${def.ability}-based`, 'all-checks']),
     ];
+    /*
+     * La penalidad de chequeos se aplica SIEMPRE, cumplas o no el requisito de
+     * Fuerza de la armadura: lo que el requisito perdona es la penalidad de
+     * velocidad, no esta. Confirmado con la fuente Legacy del proyecto
+     * (Notebook LM, 2026-08-20) — antes estaba al revés.
+     */
     if (def.armorPenalty && armorPenalty) {
-      /*
-       * El requisito de Fuerza de una armadura viene del dataset como MODIFICADOR
-       * (los 118 valores van de 0 a 5), no como puntuación. Antes se comparaba
-       * contra la puntuación —10 a 20— así que la condición nunca se cumplía y la
-       * penalidad de chequeos no se aplicaba a nadie.
-       */
-      const strReq = armor?.strength ?? null;
-      if (strReq == null || mods.str < strReq) modifiers.push(mod(`${armor?.name} (armadura)`, armorPenalty, 'item'));
+      modifiers.push(mod(`${armor?.name} (armadura)`, armorPenalty, 'item'));
     }
     return { slug: def.slug, name: def.name, rank, stat: buildStat(modifiers) };
   });
@@ -1214,9 +1237,11 @@ export function computeCharacter(
     return total + priceToCp(equipo?.price) * (item.quantity || 1);
   }, 0);
 
-  if (spentCp > STARTING_MONEY_CP) {
-    warnings.push(`El equipo cuesta ${formatCp(spentCp)} y arrancás con ${formatCp(STARTING_MONEY_CP)}.`);
-  }
+  /*
+   * El presupuesto de creación se muestra pero NO se valida: en la mesa el
+   * equipo entra por mil caminos que la app no ve —botín, regalos del máster,
+   * un personaje traído de otra app— y avisar por eso era ruido permanente.
+   */
 
   // --- carga
   const carriedBulk = build.inventory.reduce((total, item) => {
@@ -1226,12 +1251,17 @@ export function computeCharacter(
 
   const encumberedAt = 5 + mods.str;
   const maxBulk = 10 + mods.str;
-  const encumbered = carriedBulk > encumberedAt;
+  // Muchas mesas no llevan la cuenta del bulk: con `ignoreBulk` se sigue
+  // mostrando cuánto cargás, pero deja de tratarse como un problema.
+  const ignoraBulk = build.ignoreBulk === true;
+  const encumbered = !ignoraBulk && carriedBulk > encumberedAt;
 
-  if (carriedBulk > maxBulk) {
-    warnings.push(`Estás cargando ${Math.round(carriedBulk * 10) / 10} de bulk y tu máximo es ${maxBulk}.`);
-  } else if (encumbered) {
-    warnings.push(`Pasaste ${encumberedAt} de bulk: estás encumbered (clumsy 1 y −10 pies de velocidad).`);
+  if (!ignoraBulk) {
+    if (carriedBulk > maxBulk) {
+      warnings.push(`Estás cargando ${Math.round(carriedBulk * 10) / 10} de bulk y tu máximo es ${maxBulk}.`);
+    } else if (encumbered) {
+      warnings.push(`Pasaste ${encumberedAt} de bulk: estás encumbered (clumsy 1 y −10 pies de velocidad).`);
+    }
   }
 
   // --- idiomas
@@ -1320,10 +1350,22 @@ export function computeCharacter(
     }
   }
 
-  // --- velocidad
+  /*
+   * --- velocidad
+   *
+   * Si cumplís el requisito de Fuerza de la armadura, la penalidad de velocidad
+   * NO se aplica. Es al revés que la de chequeos, que se come siempre.
+   * Confirmado con la fuente Legacy del proyecto (Notebook LM, 2026-08-20).
+   *
+   * El requisito viene del dataset como modificador (0 a 5), no como puntuación.
+   */
+  const requisitoFuerza = armor?.strength ?? null;
+  const cumpleFuerza = requisitoFuerza != null && mods.str >= requisitoFuerza;
+  const penalidadVelocidad = !cumpleFuerza && armor?.speedPenalty ? armor.speedPenalty : 0;
+
   const speed = buildStat([
     mod(ancestry?.name ?? 'Base', ancestry?.speed ?? 25, 'untyped'),
-    ...(armor?.speedPenalty ? [mod(`${armor.name}`, armor.speedPenalty, 'untyped')] : []),
+    ...(penalidadVelocidad ? [mod(`${armor!.name}`, penalidadVelocidad, 'untyped')] : []),
     ...bonusDeGarbo(panacheSheet),
   ]);
 
@@ -1354,7 +1396,7 @@ export function computeCharacter(
     lores,
     initiative: { options: initiativeOptions, conditional: initiativeConditional },
     money: { startingCp: STARTING_MONEY_CP, spentCp, remainingCp: STARTING_MONEY_CP - spentCp },
-    bulk: { carried: Math.round(carriedBulk * 10) / 10, encumberedAt, max: maxBulk, encumbered },
+    bulk: { carried: Math.round(carriedBulk * 10) / 10, encumberedAt, max: maxBulk, encumbered, ignorado: ignoraBulk },
     // El master puede pisar la visión de la ancestría (una maldición, un rasgo
     // que no está modelado, un ojo perdido en la mesa).
     vision: build.visionOverride ?? ancestry?.vision ?? 'normal',

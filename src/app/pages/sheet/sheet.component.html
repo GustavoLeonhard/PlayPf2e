@@ -17,7 +17,7 @@
         <h1>{{ s.name }}</h1>
         <p class="muted">
           {{ s.ancestryName }} {{ s.heritageName !== '—' ? '(' + s.heritageName + ')' : '' }} · {{ s.className }} ·
-          Nivel {{ s.level }} · {{ s.backgroundName }}
+          {{ s.backgroundName }}
           @if (s.alignment) {
             · {{ s.alignment }}
           }
@@ -39,6 +39,15 @@
       </div>
 
       <div class="head-actions">
+        <!--
+          Número, no botón: un click de más en "Subir de nivel" no se puede
+          deshacer sin repetir todo el asistente. Esto corrige el número
+          directo y recalcula la hoja entera al toque.
+        -->
+        <label class="nivel-editable" title="Corregir el nivel a mano">
+          <span class="muted small">Nivel</span>
+          <input type="number" min="1" max="20" [value]="s.level" (change)="setLevel($any($event.target).value)" />
+        </label>
         <a class="btn" [routerLink]="['/characters', id(), 'level-up']">Subir de nivel</a>
         <a class="btn ghost" routerLink="/characters">Volver</a>
       </div>
@@ -105,7 +114,23 @@
 
       <div class="card mini">
         <span class="label muted">Velocidad</span>
-        <span class="value static">{{ s.speed.total }}<small> ft</small></span>
+        <!--
+          Con desglose como el resto de las estadísticas: la velocidad la bajan
+          la armadura y (si tuviera) el garbo, y sin poder abrirla no hay forma
+          de saber de dónde sale el número.
+        -->
+        <button class="value" (click)="toggleBreakdown('speed')">{{ s.speed.total }}<small> ft</small></button>
+        <button class="info" title="Ver de dónde sale" (click)="toggleBreakdown('speed')">ⓘ</button>
+        @if (openBreakdown() === 'speed') {
+          <div class="breakdown">
+            @for (m of s.speed.breakdown; track $index) {
+              <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+            }
+            @for (m of s.speed.suppressed; track $index) {
+              <div class="off"><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
+            }
+          </div>
+        }
       </div>
 
       <div class="card mini">
@@ -247,7 +272,7 @@
       <div class="card stat-big destacado">
         <span class="label muted">Percepción</span>
         <button class="value" (click)="roll('Percepción', s.perception)">{{ signed(s.perception.total) }}</button>
-        <button class="why muted" (click)="toggleBreakdown('perception')">¿por qué?</button>
+        <button class="info" title="Ver de dónde sale" (click)="toggleBreakdown('perception')">ⓘ</button>
         @if (openBreakdown() === 'perception') {
           <div class="breakdown">
             @for (m of s.perception.breakdown; track $index) {
@@ -328,7 +353,7 @@
           <button class="value" (click)="roll(save.n, $any(s.saves)[save.k])">
             {{ signed($any(s.saves)[save.k].total) }}
           </button>
-          <button class="why muted" (click)="toggleBreakdown(save.k)">¿por qué?</button>
+          <button class="info" title="Ver de dónde sale" (click)="toggleBreakdown(save.k)">ⓘ</button>
           @if (openBreakdown() === save.k) {
             <div class="breakdown">
               @for (m of $any(s.saves)[save.k].breakdown; track $index) {
@@ -346,6 +371,23 @@
     </section>
 
     <section class="secciones">
+      <!-- Favoritos: lo que usás todos los turnos, sin buscarlo en la lista -->
+      <app-accordion titulo="Favoritos" class="favoritos">
+        <div class="rejilla angosta">
+        @for (fav of favorites(); track fav.fav.kind + fav.fav.ref) {
+          <div class="skill-row">
+            <button class="skill-name" (click)="rollFavorite(fav)">{{ fav.label }}</button>
+            <span class="muted">{{ fav.detail }}</span>
+            <button class="rank-btn" (click)="toggleFavorite(fav.fav.kind, fav.fav.ref, fav.label)">quitar</button>
+          </div>
+        } @empty {
+          <p class="muted small">
+            Marcá con ★ un ataque, una habilidad o un conjuro y va a aparecer acá.
+          </p>
+        }
+        </div>
+      </app-accordion>
+
       <app-accordion titulo="Atributos">
         <div class="fila tiradas">
       @for (ab of abilityList; track ab) {
@@ -354,77 +396,40 @@
           <button class="value" (click)="roll(abilityNames[ab], s.abilityChecks[ab])">
             {{ signed(s.abilityMods[ab]) }}
           </button>
-          <span class="score muted">{{ s.abilityScores[ab] }}</span>
-          <button class="why muted" (click)="toggleBreakdown('ab-' + ab)">¿por qué?</button>
+
+          <!--
+            La puntuación se escribe a mano y pisa la de los boosts. El
+            modificador de arriba y todo lo que dependa de él se recalculan solos.
+          -->
+          <span class="score-fila">
+            <input
+              class="score-input"
+              type="number"
+              min="1"
+              max="30"
+              [class.manual]="esAbilityManual(ab)"
+              [value]="s.abilityScores[ab]"
+              [title]="esAbilityManual(ab) ? 'Escrito a mano; pisa el valor de los boosts' : 'Sale de tus boosts'"
+              (change)="setAbilityScore(ab, $any($event.target).value)"
+            />
+            <button class="info" title="Ver de dónde sale" (click)="toggleBreakdown('ab-' + ab)">ⓘ</button>
+          </span>
+
           @if (openBreakdown() === 'ab-' + ab) {
             <div class="breakdown">
               @for (m of s.abilityChecks[ab].breakdown; track $index) {
                 <div><span>{{ m.source }}</span><span>{{ signed(m.value) }}</span></div>
               }
+              @if (esAbilityManual(ab)) {
+                <div class="manual-aviso">
+                  <span>Puntuación escrita a mano</span>
+                  <button class="rank-btn" (click)="clearAbilityOverride(ab)">volver a los boosts</button>
+                </div>
+              }
             </div>
           }
         </div>
       }
-        </div>
-      </app-accordion>
-
-      <app-accordion titulo="Rasgos y dotes" [inicial]="false">
-        <div class="rejilla">
-        @for (grupo of featGroups(); track grupo.key) {
-          <div class="feat-group">
-            <h3 class="muted">{{ grupo.label }}</h3>
-            @for (f of grupo.items; track f.name + f.level) {
-              <div class="feat-row">
-                <span [class.accent]="f.esDote">
-                  {{ f.name }}
-                  @if (fichas().get((f.esDote ? 'dote:' : 'rasgo:') + f.id); as ficha) {
-                    <button class="info" title="Ver la descripción" (click)="verFicha((f.esDote ? 'dote:' : 'rasgo:') + f.id)">
-                      ⓘ
-                    </button>
-                  }
-                </span>
-                <span class="muted">nv {{ f.level }}</span>
-                @if (f.esDote) {
-                  <button class="rank-btn" title="Sacar esta dote" (click)="quitarDote(f)">quitar</button>
-                }
-              </div>
-            } @empty {
-              <p class="muted small">Nada todavía.</p>
-            }
-
-            <!--
-              Agregar una dote fuera del subir de nivel: un tomo, un boon, algo
-              que decidió el máster en la mesa. "Adicionales" es a propósito una
-              lista sin filtrar por categoría ni por clase/ancestría.
-            -->
-            @if (agregandoDote() === grupo.key) {
-              <div class="add-item">
-                <label>
-                  Buscar
-                  <input
-                    type="search"
-                    placeholder="nombre de la dote…"
-                    [value]="doteSearch()"
-                    (input)="doteSearch.set($any($event.target).value)"
-                  />
-                </label>
-                @for (dote of opcionesDote(grupo.key); track dote.id) {
-                  <div class="inv-row">
-                    <span class="inv-name">{{ dote.name }}</span>
-                    <span class="inv-actions">
-                      <button class="rank-btn" (click)="agregarDote(grupo.key, dote.id)">agregar</button>
-                    </span>
-                  </div>
-                } @empty {
-                  <p class="muted small">Nada con ese nombre en esta categoría, a este nivel.</p>
-                }
-                <button class="btn ghost" (click)="agregandoDote.set(null); doteSearch.set('')">Cerrar</button>
-              </div>
-            } @else {
-              <button class="btn ghost" (click)="agregandoDote.set(grupo.key)">+ Agregar</button>
-            }
-          </div>
-        }
         </div>
       </app-accordion>
 
@@ -478,22 +483,148 @@
         </div>
       </app-accordion>
 
-      <!-- Favoritos: lo que usás todos los turnos, sin buscarlo en la lista -->
-      <app-accordion titulo="Favoritos" class="favoritos">
-        <div class="rejilla angosta">
-        @for (fav of favorites(); track fav.fav.kind + fav.fav.ref) {
-          <div class="skill-row">
-            <button class="skill-name" (click)="rollFavorite(fav)">{{ fav.label }}</button>
-            <span class="muted">{{ fav.detail }}</span>
-            <button class="rank-btn" (click)="toggleFavorite(fav.fav.kind, fav.fav.ref, fav.label)">quitar</button>
+      <app-accordion titulo="Rasgos y dotes" [inicial]="false">
+        <div class="rejilla">
+        @for (grupo of featGroups(); track grupo.key) {
+          <div class="feat-group">
+            <h3 class="muted">{{ grupo.label }}</h3>
+            @for (f of grupo.items; track f.name + f.level) {
+              <div class="feat-row">
+                <span [class.accent]="f.esDote">
+                  {{ f.name }}
+                  @if (fichas().get((f.esDote ? 'dote:' : 'rasgo:') + f.id); as ficha) {
+                    <button class="info" title="Ver la descripción" (click)="verFicha((f.esDote ? 'dote:' : 'rasgo:') + f.id)">
+                      ⓘ
+                    </button>
+                  }
+                </span>
+                <span class="muted">nv {{ f.level }}</span>
+                @if (f.esDote) {
+                  <button class="rank-btn" title="Sacar esta dote" (click)="quitarDote(f)">quitar</button>
+                }
+              </div>
+            } @empty {
+              <p class="muted small">Nada todavía.</p>
+            }
+
+            <!--
+              Agregar una dote fuera del subir de nivel: un tomo, un boon, algo
+              que decidió el máster en la mesa. "Adicionales" es a propósito una
+              lista sin filtrar por categoría ni por clase/ancestría.
+            -->
+            @if (agregandoDote() === grupo.key) {
+              <div class="add-item">
+                <label>
+                  Buscar
+                  <input
+                    type="search"
+                    placeholder="nombre de la dote…"
+                    [value]="doteSearch()"
+                    (input)="doteSearch.set($any($event.target).value)"
+                  />
+                </label>
+                @for (dote of opcionesDote(grupo.key); track dote.id) {
+                  <div class="inv-row">
+                    <span class="inv-name">
+                      {{ dote.name }}
+                      <small class="muted">nv {{ dote.level }}</small>
+                      @if (dote.description) {
+                        <button
+                          class="info"
+                          title="Ver la descripción"
+                          (click)="toggleDescripcion(dote.id)"
+                        >
+                          ⓘ
+                        </button>
+                      }
+                    </span>
+                    <span class="inv-actions">
+                      @if (yaTenesDote(dote)) {
+                        <span class="tag">ya la tenés</span>
+                      } @else {
+                        <button class="rank-btn" (click)="agregarDote(grupo.key, dote.id)">agregar</button>
+                      }
+                    </span>
+                    @if (descripcionAbierta() === dote.id) {
+                      <div class="desc-inline" [innerHTML]="dote.description"></div>
+                    }
+                  </div>
+                } @empty {
+                  <p class="muted small">Nada con ese nombre en esta categoría, a este nivel.</p>
+                }
+                <!--
+                  Con 30 o 40 resultados el panel se volvía una lista larga que
+                  empujaba el resto de la hoja: acá se ven las primeras 12, y el
+                  resto se recorre más cómodo en el modal.
+                -->
+                @if (hayMasDotes(grupo.key)) {
+                  <button class="btn ghost" (click)="doteModal.set(grupo.key)">
+                    Ver todas ({{ opcionesDoteCompletas(grupo.key).length }})
+                  </button>
+                }
+                <button class="btn ghost" (click)="agregandoDote.set(null); doteSearch.set('')">Cerrar</button>
+              </div>
+            } @else {
+              <button class="btn ghost" (click)="agregandoDote.set(grupo.key)">+ Agregar</button>
+            }
           </div>
-        } @empty {
-          <p class="muted small">
-            Marcá con ★ un ataque, una habilidad o un conjuro y va a aparecer acá.
-          </p>
         }
         </div>
       </app-accordion>
+
+      <!--
+        El modal de "ver todas" no vive dentro del acordeón: necesita tapar
+        toda la pantalla, y anidado ahí adentro quedaría recortado por el
+        overflow de la sección.
+      -->
+      @if (doteModal(); as fuente) {
+        <div class="backdrop" (click)="doteModal.set(null)">
+          <div class="card dialog dote-dialog" (click)="$event.stopPropagation()">
+            <div class="dialog-head">
+              <h2>Agregar dote — {{ labelDeSource[fuente] }}</h2>
+              <button class="close" (click)="doteModal.set(null)">×</button>
+            </div>
+
+            <label>
+              Buscar
+              <input
+                type="search"
+                placeholder="nombre de la dote…"
+                [value]="doteSearch()"
+                (input)="doteSearch.set($any($event.target).value)"
+              />
+            </label>
+
+            <div class="dote-dialog-lista">
+              @for (dote of opcionesDoteCompletas(fuente); track dote.id) {
+                <div class="inv-row">
+                  <span class="inv-name">
+                    {{ dote.name }}
+                    <small class="muted">nv {{ dote.level }}</small>
+                    @if (dote.description) {
+                      <button class="info" title="Ver la descripción" (click)="toggleDescripcion(dote.id)">
+                        ⓘ
+                      </button>
+                    }
+                  </span>
+                  <span class="inv-actions">
+                    @if (yaTenesDote(dote)) {
+                      <span class="tag">ya la tenés</span>
+                    } @else {
+                      <button class="rank-btn" (click)="agregarDote(fuente, dote.id)">agregar</button>
+                    }
+                  </span>
+                  @if (descripcionAbierta() === dote.id) {
+                    <div class="desc-inline" [innerHTML]="dote.description"></div>
+                  }
+                </div>
+              } @empty {
+                <p class="muted small">Nada con ese nombre en esta categoría, a este nivel.</p>
+              }
+            </div>
+          </div>
+        </div>
+      }
 
       <!--
         La armadura se edita igual que un arma: lo que el máster cambió se guarda
@@ -1073,9 +1204,25 @@
 
       <app-accordion
         titulo="Inventario"
-        [subtitulo]="s.bulk.carried + ' / ' + s.bulk.encumberedAt + ' bulk' + (s.bulk.encumbered ? ' — encumbered' : '')"
+        [subtitulo]="
+          s.bulk.carried +
+          ' / ' +
+          s.bulk.encumberedAt +
+          ' bulk' +
+          (s.bulk.ignorado ? ' — sin contar' : s.bulk.encumbered ? ' — encumbered' : '')
+        "
         [inicial]="false"
       >
+        <!-- Muchas mesas no llevan la cuenta del peso: con esto deja de avisar. -->
+        <label acc-extra class="ignorar-bulk" title="Dejá de avisar por la carga">
+          <input
+            type="checkbox"
+            [checked]="s.bulk.ignorado"
+            (change)="setIgnoreBulk($any($event.target).checked)"
+          />
+          Ignorar el peso
+        </label>
+
         <!--
           La plata queda fija arriba del inventario: es lo que mirás mientras comprás.
           Cada moneda se escribe; el total se guarda en cobre y se reparte solo.
@@ -1156,20 +1303,23 @@
                 <span class="inv-name">
                   {{ item.name }}
                   <small class="muted">{{ formatCp(priceOf(item)) }}</small>
+                  <!-- Mismo criterio que en las dotes: leer antes de comprar. -->
+                  @if (item.description) {
+                    <button class="info" title="Ver la descripción" (click)="toggleDescripcion(item.id)">ⓘ</button>
+                  }
                 </span>
                 <span class="inv-actions">
-                  <button
-                    class="rank-btn"
-                    [disabled]="!canAfford(item)"
-                    [title]="canAfford(item) ? 'Descuenta de tu bolsa' : 'No te alcanza la plata'"
-                    (click)="addItem(item.id, true)"
-                  >
+                  <!-- Comprar nunca se bloquea: si te quedás en rojo, es tu problema. -->
+                  <button class="rank-btn" title="Descuenta de tu bolsa" (click)="addItem(item.id, true)">
                     comprar
                   </button>
                   <button class="rank-btn" title="Sin pagar: un botín, un regalo…" (click)="addItem(item.id, false)">
                     agregar
                   </button>
                 </span>
+                @if (descripcionAbierta() === item.id) {
+                  <div class="desc-inline" [innerHTML]="item.description"></div>
+                }
               </div>
             }
 

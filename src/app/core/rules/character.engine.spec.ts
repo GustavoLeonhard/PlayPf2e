@@ -666,6 +666,20 @@ describe('carga (bulk)', () => {
     expect(sheet.warnings.some((w) => w.text.includes('encumbered'))).toBe(true);
   });
 
+  it('con ignoreBulk se sigue contando, pero deja de avisar', () => {
+    const build = humanFighter();
+    build.inventory = [{ id: chainMail.id, quantity: 6, equipped: false }]; // 12 de bulk
+    build.ignoreBulk = true;
+    const sheet = computeCharacter(build, null, content);
+
+    // El peso se sigue mostrando: es información útil aunque no se penalice.
+    expect(sheet.bulk.carried).toBe(12);
+    expect(sheet.bulk.ignorado).toBe(true);
+    expect(sheet.bulk.encumbered).toBe(false);
+    expect(sheet.warnings.some((w) => w.text.includes('encumbered'))).toBe(false);
+    expect(sheet.warnings.some((w) => w.text.includes('máximo'))).toBe(false);
+  });
+
   it('un objeto inventado aporta el bulk que le pusiste', () => {
     const build = humanFighter();
     build.inventory = [
@@ -705,11 +719,19 @@ describe('dinero', () => {
     expect(money.remainingCp).toBe(1300);
   });
 
-  it('avisa si el equipo cuesta más de lo que tenés', () => {
+  /*
+   * El presupuesto es una referencia, no un límite: en la mesa el equipo entra
+   * por caminos que la app no ve (botín, regalos, un PJ traído de otra app).
+   */
+  it('pasarse del presupuesto no genera ninguna advertencia', () => {
     const caro = equipment.find((e) => priceToCp(e.price) > 1500)!;
     const build = humanFighter();
     build.inventory = [{ id: caro.id, quantity: 1, equipped: false }];
-    expect(computeCharacter(build, null, content).warnings.some((w) => w.text.includes('arrancás'))).toBe(true);
+
+    const sheet = computeCharacter(build, null, content);
+    expect(sheet.warnings.some((w) => w.text.includes('arrancás'))).toBe(false);
+    // Pero la cuenta se sigue mostrando, con el rojo del caso.
+    expect(sheet.money.remainingCp).toBeLessThan(0);
   });
 });
 
@@ -975,30 +997,40 @@ describe('armadura personalizada', () => {
 
   const sigilo = (s: ReturnType<typeof computeCharacter>) => s.skills.find((x) => x.slug === 'stealth')!.stat.total;
 
+  const velocidad = (s: ReturnType<typeof computeCharacter>) => s.speed.total;
+
   /*
-   * El requisito de Fuerza del dataset es un MODIFICADOR (0 a 5), no una
-   * puntuación. Comparándolo contra la puntuación la condición nunca se cumplía
-   * y la penalidad de chequeos no se le aplicaba a nadie.
+   * El requisito de Fuerza perdona la penalidad de VELOCIDAD, no la de chequeos.
+   * Confirmado con la fuente Legacy del proyecto (2026-08-20) — antes estaba al
+   * revés. El requisito viene del dataset como modificador (0 a 5), no como
+   * puntuación: el guerrero de prueba tiene Fuerza 18 (+4).
    */
-  it('la penalidad de chequeos se aplica solo si no llegás al requisito de Fuerza', () => {
+  it('la penalidad de chequeos se aplica cumplas o no el requisito de Fuerza', () => {
     const cumple = computeCharacter(conArmadura({ strength: 0 }), null, content);
     const noCumple = computeCharacter(conArmadura({ strength: 5 }), null, content);
 
-    expect(sigilo(cumple)).toBeGreaterThan(sigilo(noCumple));
+    expect(sigilo(cumple)).toBe(sigilo(noCumple));
+  });
+
+  it('cumplir el requisito de Fuerza saca la penalidad de velocidad', () => {
+    const cumple = computeCharacter(conArmadura({ strength: 0, speedPenalty: -10 }), null, content);
+    const noCumple = computeCharacter(conArmadura({ strength: 5, speedPenalty: -10 }), null, content);
+
+    expect(velocidad(cumple) - velocidad(noCumple)).toBe(10);
   });
 
   it('un 0 es un valor válido: una armadura sin penalidad de chequeos', () => {
-    const sheet = computeCharacter(conArmadura({ strength: 5, checkPenalty: 0 }), null, content);
-    expect(sheet.armor?.checkPenalty).toBe(0);
+    const sinPenalidad = computeCharacter(conArmadura({ checkPenalty: 0 }), null, content);
+    expect(sinPenalidad.armor?.checkPenalty).toBe(0);
 
-    // Con el mismo requisito incumplido pero sin penalidad, no se descuenta nada.
-    const conPenalidad = computeCharacter(conArmadura({ strength: 5 }), null, content);
-    expect(sigilo(sheet)).toBeGreaterThan(sigilo(conPenalidad));
+    const conPenalidad = computeCharacter(conArmadura(), null, content);
+    expect(sigilo(sinPenalidad)).toBeGreaterThan(sigilo(conPenalidad));
   });
 
   it('la penalidad de velocidad del master llega a la velocidad', () => {
-    const base = computeCharacter(conArmadura(), null, content);
-    const tocada = computeCharacter(conArmadura({ speedPenalty: -10 }), null, content);
+    // Requisito alto para que la penalidad se aplique de verdad.
+    const base = computeCharacter(conArmadura({ strength: 5 }), null, content);
+    const tocada = computeCharacter(conArmadura({ strength: 5, speedPenalty: -10 }), null, content);
     expect(tocada.speed.total).toBe(base.speed.total - 5);
   });
 });
@@ -1343,5 +1375,47 @@ describe('ataques naturales', () => {
     const sinExtra = computeCharacter(conGarras([{ ...build.naturalWeapons[0], bonusAttack: 0, bonusDamage: 0 }]), null, content).strikes.find((s) => s.naturalId === 'colmillo-1')!;
     expect(colmillo.attack.total - sinExtra.attack.total).toBe(1);
     expect(colmillo.damage.total - sinExtra.damage.total).toBe(2);
+  });
+});
+
+describe('puntuación de atributo escrita a mano', () => {
+  it('pisa el resultado de los boosts, no se le suma', () => {
+    const build = humanFighter(); // Fuerza 18 por boosts
+    build.abilityOverrides = { str: 12 };
+    const sheet = computeCharacter(build, null, content);
+
+    expect(sheet.abilityScores.str).toBe(12);
+    expect(sheet.abilityMods.str).toBe(1);
+  });
+
+  it('arrastra todo lo que depende del atributo', () => {
+    const base = computeCharacter(humanFighter(), null, content);
+
+    const build = humanFighter();
+    build.abilityOverrides = { con: 10 }; // era 14 (+2)
+    const conMenos = computeCharacter(build, null, content);
+
+    // El HP baja el modificador de Constitución por nivel.
+    expect(base.maxHp.total - conMenos.maxHp.total).toBe(2);
+    // Y la salvación de Fortaleza, que va con Constitución.
+    expect(base.saves.fortitude.total - conMenos.saves.fortitude.total).toBe(2);
+  });
+
+  it('un atributo escrito a mano no toca a los demás', () => {
+    const base = computeCharacter(humanFighter(), null, content);
+
+    const build = humanFighter();
+    build.abilityOverrides = { cha: 20 };
+    const sheet = computeCharacter(build, null, content);
+
+    expect(sheet.abilityScores.cha).toBe(20);
+    expect(sheet.abilityScores.str).toBe(base.abilityScores.str);
+    expect(sheet.abilityScores.dex).toBe(base.abilityScores.dex);
+  });
+
+  it('sin override, todo sigue saliendo de los boosts', () => {
+    const build = humanFighter();
+    build.abilityOverrides = {};
+    expect(computeCharacter(build, null, content).abilityScores.str).toBe(18);
   });
 });

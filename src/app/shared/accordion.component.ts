@@ -16,13 +16,25 @@ import { Component, input, linkedSignal } from '@angular/core';
   selector: 'app-accordion',
   template: `
     <section class="acc card" [class.cerrado]="!abierto()">
-      <button class="acc-head" [attr.aria-expanded]="abierto()" (click)="abierto.set(!abierto())">
-        <span class="chev">{{ abierto() ? '▾' : '▸' }}</span>
-        <span class="acc-title">{{ titulo() }}</span>
-        @if (subtitulo()) {
-          <small class="acc-sub">{{ subtitulo() }}</small>
-        }
-      </button>
+      <!--
+        La fila del encabezado no es el botón: el botón es solo el título. Así se
+        puede poner un control al lado (un checkbox, por ejemplo) sin meterlo
+        adentro de un <button>, que es HTML inválido y además se dispararía el
+        plegado al usarlo.
+      -->
+      <div class="acc-head">
+        <button class="acc-toggle" [attr.aria-expanded]="abierto()" (click)="abierto.set(!abierto())">
+          <span class="chev">{{ abierto() ? '▾' : '▸' }}</span>
+          <span class="acc-title">{{ titulo() }}</span>
+          @if (subtitulo()) {
+            <small class="acc-sub">{{ subtitulo() }}</small>
+          }
+        </button>
+
+        <div class="acc-extra">
+          <ng-content select="[acc-extra]" />
+        </div>
+      </div>
 
       <div class="acc-body">
         <ng-content />
@@ -42,19 +54,30 @@ import { Component, input, linkedSignal } from '@angular/core';
     .acc-head {
       display: flex;
       align-items: baseline;
+      gap: 0.8rem;
+      padding: 0.7rem 0.9rem;
+    }
+
+    .acc-toggle {
+      display: flex;
+      align-items: baseline;
       gap: 0.55rem;
-      width: 100%;
+      flex: 1 1 auto;
       background: none;
       border: none;
       cursor: pointer;
       text-align: left;
-      padding: 0.7rem 0.9rem;
+      padding: 0;
       color: inherit;
       font: inherit;
     }
 
-    .acc-head:hover .acc-title {
+    .acc-toggle:hover .acc-title {
       color: var(--accent);
+    }
+
+    .acc-extra:empty {
+      display: none;
     }
 
     .acc-title {
@@ -79,6 +102,14 @@ import { Component, input, linkedSignal } from '@angular/core';
 
     .cerrado .acc-head {
       padding-bottom: 0.7rem;
+    }
+
+    .acc-extra {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8rem;
+      color: var(--muted);
     }
   `,
 })

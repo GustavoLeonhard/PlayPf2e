@@ -9,7 +9,23 @@
 
 .head-actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+}
+
+.nivel-editable {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-right: 0.3rem;
+}
+
+.nivel-editable input {
+  width: 3.4rem;
+  padding: 0.3rem;
+  text-align: center;
+  font-weight: 600;
+  color: var(--accent-strong);
 }
 
 .warnings {
@@ -1220,4 +1236,158 @@
 
 .feat-group .add-item {
   margin-top: 0.4rem;
+}
+
+/* ---------------------------------------------------- modal "ver todas" */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: #000a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 20;
+}
+
+.dialog {
+  max-width: 30rem;
+}
+
+.dote-dialog {
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.dialog-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.dialog-head .close {
+  position: static;
+  font-size: 1.2rem;
+}
+
+.dote-dialog-lista {
+  overflow-y: auto;
+  margin-top: 0.4rem;
+}
+
+/* ------------------------------------------ descripción dentro de la lista */
+
+/*
+ * Va debajo de la fila, ocupando el ancho completo (la fila es flex con wrap).
+ * Acá la descripción no sale en el rincón de las tiradas: estás comparando
+ * opciones y conviene leerla sin perder de vista la lista.
+ */
+.desc-inline {
+  flex: 1 1 100%;
+  margin: 0.3rem 0 0.2rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--muted);
+  background: var(--surface);
+  border-left: 2px solid var(--border);
+  border-radius: 4px;
+}
+
+.desc-inline p {
+  margin: 0 0 0.5rem;
+}
+
+.desc-inline p:last-child {
+  margin-bottom: 0;
+}
+
+.desc-inline ul,
+.desc-inline ol {
+  margin: 0 0 0.5rem;
+  padding-left: 1.1rem;
+}
+
+.desc-inline hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.5rem 0;
+}
+
+.desc-inline strong {
+  color: var(--text);
+}
+
+/* Angular colapsa el espacio entre elementos, así que el ⓘ queda pegado al texto. */
+.inv-name .info {
+  margin-left: 0.2rem;
+}
+
+/* Tilde para dejar de contar el peso, al lado del título del inventario. */
+.ignorar-bulk {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ignorar-bulk input {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* ------------------------------------------- puntuación de atributo editable */
+
+.score-fila {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  margin-top: 0.2rem;
+}
+
+.score-input {
+  width: 3.2rem;
+  padding: 0.1rem 0.2rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-bottom-color: var(--border);
+}
+
+.score-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Escrita a mano: se nota que no salió de los boosts. */
+.score-input.manual {
+  color: var(--accent);
+  border-bottom-style: dashed;
+  border-bottom-color: var(--accent);
+}
+
+.manual-aviso {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border);
+  color: var(--accent);
 }

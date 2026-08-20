@@ -348,13 +348,17 @@
 
       @case ('gear') {
         <div class="gear">
-          <p class="budget" [class.over]="remainingCp() < 0">
+          <!--
+            El presupuesto es una referencia, no un límite: se muestra lo gastado
+            y lo que queda, sin marcarlo en rojo ni bloquear nada si te pasás.
+          -->
+          <p class="budget">
             Arrancás con <strong>{{ formatCp(startingMoney) }}</strong> ·
             gastado <strong>{{ formatCp(spentCp()) }}</strong> ·
             @if (remainingCp() >= 0) {
               te quedan <strong>{{ formatCp(remainingCp()) }}</strong>
             } @else {
-              te pasaste por <strong>{{ formatCp(-remainingCp()) }}</strong>
+              vas <strong>{{ formatCp(-remainingCp()) }}</strong> por encima
             }
           </p>
           <app-option-picker [options]="equipmentOptions()" [selectedId]="null" (selectedIdChange)="addGear($event)" />
@@ -367,10 +371,20 @@
             @for (item of build().inventory; track item.id) {
               <div class="bag-row">
                 <span>
-                  {{ gearName(item.id) }} @if (item.quantity > 1) { <small>×{{ item.quantity }}</small> }
+                  {{ gearName(item.id) }}
                   <small class="muted">{{ formatCp(gearPrice(item.id) * item.quantity) }}</small>
                 </span>
-                <button class="btn ghost danger" type="button" (click)="removeGear(item.id)">quitar</button>
+                <span class="bag-acciones">
+                  <label class="cantidad" title="Cantidad">
+                    <input
+                      type="number"
+                      min="1"
+                      [value]="item.quantity"
+                      (change)="setGearQuantity(item.id, $any($event.target).value)"
+                    />
+                  </label>
+                  <button class="btn ghost danger" type="button" (click)="removeGear(item.id)">quitar</button>
+                </span>
               </div>
             }
           </div>
