@@ -1391,3 +1391,22 @@
   border-top: 1px solid var(--border);
   color: var(--accent);
 }
+
+/* ----------------------------------------------------------- favoritos */
+
+/*
+ * Filas, no tarjetas: cada favorito se ve como en su sección de origen, y para
+ * eso necesita el ancho completo (un arma trae sus tres ataques y su daño).
+ */
+.favoritos-lista {
+  display: flex;
+  flex-direction: column;
+}
+
+.fav-fila.no-disponible {
+  opacity: 0.55;
+}
+
+.fav-fila.no-disponible .skill-name {
+  text-decoration: line-through;
+}

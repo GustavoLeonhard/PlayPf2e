@@ -25,6 +25,22 @@ import { CharacterService } from '../../core/services/character.service';
 import { AccordionComponent } from '../../shared/accordion.component';
 import { ContentService, type ConditionText } from '../../core/services/content.service';
 
+/** Un favorito ya resuelto contra la hoja de ahora. Ver `favorites`. */
+export interface FavoritoResuelto {
+  fav: Favorite;
+  kind: Favorite['kind'];
+  label: string;
+  strike?: StrikeSheet;
+  stat?: Stat;
+  spell?: Spell;
+  /** Rango al que se lanza el conjuro hoy; 0 para armas y habilidades. */
+  rank: number;
+  detalle: string;
+  disponible: boolean;
+  /** Por qué no se puede usar: "no equipada", "no preparado"… */
+  motivo: string;
+}
+
 export interface RollResult {
   label: string;
   die: number;
@@ -199,27 +215,95 @@ export class SheetComponent implements OnInit {
    * Lo que el jugador quiere tener a mano. Se guarda una referencia y se resuelve
    * cada vez contra la hoja: si sube el modificador, el favorito ya lo refleja.
    */
+  /**
+   * Los conjuros que se pueden lanzar AHORA, con el rango al que salen.
+   *
+   * No alcanza con "lo conoce": un preparado solo puede lanzar lo que preparó
+   * hoy. Esto junta las mismas fuentes que ya muestra la sección de conjuros,
+   * así que un favorito está disponible exactamente cuando lo estaría abajo.
+   */
+  private readonly conjurosDisponibles = computed(() => {
+    const salida = new Map<string, { spell: Spell; rank: number; focus: boolean }>();
+
+    const anotar = (spell: Spell | null | undefined, rank: number, focus = false) => {
+      if (spell && !salida.has(spell.id)) salida.set(spell.id, { spell, rank, focus });
+    };
+
+    for (const grupo of this.spellGroups()) for (const spell of grupo.spells) anotar(spell, grupo.rank);
+    for (const grupo of this.preparedSlots()) for (const slot of grupo.slots) anotar(slot.spell, grupo.rank);
+
+    const font = this.fontSlots();
+    if (font) for (const slot of font.slots) anotar(slot.spell, font.rank);
+
+    const focus = this.sheet()?.focus;
+    if (focus) for (const spell of this.focusSpells()) anotar(spell, focus.rank, true);
+
+    return salida;
+  });
+
+  /**
+   * Los favoritos, resueltos contra la hoja de ahora.
+   *
+   * Lo que dejó de estar disponible NO se saca de la lista: se muestra apagado
+   * con el motivo. Un arma que guardaste en la mochila o un conjuro que hoy no
+   * preparaste siguen siendo tus favoritos — desaparecer sin avisar haría
+   * pensar que se perdieron.
+   */
   readonly favorites = computed(() => {
     const sheet = this.sheet();
     const guardados = this.record()?.build.favorites ?? [];
     if (!sheet) return [];
 
     const porId = new Map(this.spellList().map((s) => [s.id, s]));
+    const disponibles = this.conjurosDisponibles();
 
-    return guardados
-      .map((fav) => {
-        if (fav.kind === 'strike') {
-          const strike = sheet.strikes.find((s) => s.name === fav.ref);
-          return strike ? { fav, label: strike.name, detail: signed(strike.attack.total), strike } : null;
-        }
-        if (fav.kind === 'skill') {
-          const skill = [...sheet.skills, ...sheet.lores].find((s) => s.slug === fav.ref);
-          return skill ? { fav, label: skill.name, detail: signed(skill.stat.total), stat: skill.stat } : null;
-        }
-        const spell = porId.get(fav.ref);
-        return spell ? { fav, label: spell.name, detail: `rango ${spell.level}`, spell } : null;
-      })
-      .filter((f): f is NonNullable<typeof f> => !!f);
+    /*
+     * Todas las entradas tienen la misma forma aunque solo una de las tres
+     * referencias venga llena: en la plantilla, angostar un union por una
+     * propiedad discriminante es más ruido que un par de campos opcionales.
+     */
+    return guardados.map((fav): FavoritoResuelto => {
+      if (fav.kind === 'strike') {
+        const strike = sheet.strikes.find((s) => s.name === fav.ref);
+        return {
+          fav,
+          kind: 'strike',
+          label: strike?.name ?? fav.label,
+          strike,
+          rank: 0,
+          detalle: strike ? signed(strike.attack.total) : '',
+          disponible: !!strike,
+          motivo: strike ? '' : 'no equipada',
+        };
+      }
+
+      if (fav.kind === 'skill') {
+        const skill = [...sheet.skills, ...sheet.lores].find((s) => s.slug === fav.ref);
+        return {
+          fav,
+          kind: 'skill',
+          label: skill?.name ?? fav.label,
+          stat: skill?.stat,
+          rank: 0,
+          detalle: skill ? signed(skill.stat.total) : '',
+          disponible: !!skill,
+          motivo: skill ? '' : 'no está',
+        };
+      }
+
+      const listo = disponibles.get(fav.ref);
+      const spell = listo?.spell ?? porId.get(fav.ref);
+      return {
+        fav,
+        kind: 'spell',
+        label: spell?.name ?? fav.label,
+        spell,
+        rank: listo?.rank ?? spell?.level ?? 1,
+        detalle: '',
+        disponible: !!listo,
+        motivo: listo ? '' : spell ? 'no preparado' : 'no encontrado',
+      };
+    });
   });
 
   isFavorite = (kind: Favorite['kind'], ref: string) =>
@@ -239,10 +323,10 @@ export class SheetComponent implements OnInit {
   }
 
   /** Un favorito se tira como lo que sea que es: ataque, habilidad o conjuro. */
+  /** Una habilidad favorita se tira desde acá; armas y conjuros usan su propia fila. */
   rollFavorite(fav: ReturnType<typeof this.favorites>[number]) {
-    if ('strike' in fav && fav.strike) this.rollStrike(fav.strike);
-    else if ('stat' in fav && fav.stat) this.roll(fav.label, fav.stat);
-    else if ('spell' in fav && fav.spell) this.castSpell(fav.spell, fav.spell.level);
+    if (!fav.disponible) return;
+    if ('stat' in fav && fav.stat) this.roll(fav.label, fav.stat);
   }
 
   // ---------------------------------------------------------------- idiomas

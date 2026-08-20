@@ -372,13 +372,36 @@
 
     <section class="secciones">
       <!-- Favoritos: lo que usás todos los turnos, sin buscarlo en la lista -->
+      <!--
+        Cada favorito se ve como en su sección de origen: un arma con sus tres
+        ataques y su daño, un conjuro con su rango y su tirada. Repetir el mismo
+        formato evita tener que traducir mentalmente dos vistas de lo mismo.
+      -->
       <app-accordion titulo="Favoritos" class="favoritos">
-        <div class="rejilla angosta">
+        <div class="favoritos-lista ataques-tabla">
         @for (fav of favorites(); track fav.fav.kind + fav.fav.ref) {
-          <div class="skill-row">
-            <button class="skill-name" (click)="rollFavorite(fav)">{{ fav.label }}</button>
-            <span class="muted">{{ fav.detail }}</span>
-            <button class="rank-btn" (click)="toggleFavorite(fav.fav.kind, fav.fav.ref, fav.label)">quitar</button>
+          <div class="fav-fila" [class.no-disponible]="!fav.disponible">
+            @if (fav.disponible && fav.kind === 'strike' && fav.strike) {
+              <ng-container [ngTemplateOutlet]="strikeTpl" [ngTemplateOutletContext]="{ $implicit: fav.strike }" />
+            } @else if (fav.disponible && fav.kind === 'spell' && fav.spell) {
+              <ng-container
+                [ngTemplateOutlet]="favSpellTpl"
+                [ngTemplateOutletContext]="{ $implicit: fav.spell, rank: fav.rank }"
+              />
+            } @else if (fav.disponible && fav.kind === 'skill' && fav.stat) {
+              <div class="skill-row">
+                <button class="skill-name" (click)="rollFavorite(fav)">{{ fav.label }}</button>
+                <span class="rank muted">habilidad</span>
+                <button class="skill-mod" (click)="rollFavorite(fav)">{{ fav.detalle }}</button>
+              </div>
+            } @else {
+              <!-- Sigue siendo tu favorito: se muestra apagado, con el motivo. -->
+              <div class="skill-row">
+                <span class="skill-name muted">{{ fav.label }}</span>
+                <span class="tag">{{ fav.motivo }}</span>
+                <button class="rank-btn" (click)="toggleFavorite(fav.fav.kind, fav.fav.ref, fav.label)">quitar</button>
+              </div>
+            }
           </div>
         } @empty {
           <p class="muted small">
@@ -923,6 +946,14 @@
                 @for (slot of font.slots; track slot.index) {
                   <div class="spell-row">
                     @if (slot.spell; as spell) {
+                      <button
+                        class="star fav"
+                        [class.on]="isFavorite('spell', spell.id)"
+                        title="Favorito"
+                        (click)="toggleFavorite('spell', spell.id, spell.name)"
+                      >
+                        ★
+                      </button>
                       <button class="spell-name" (click)="castSpell(spell, font.rank)">{{ spell.name }}</button>
                       <button class="info" title="Ver la descripción" (click)="verFicha('conjuro:' + spell.id)">ⓘ</button>
                       @if (preparing()) {
@@ -957,6 +988,14 @@
                 @for (slot of group.slots; track slot.index) {
                   <div class="spell-row">
                     @if (slot.spell; as spell) {
+                      <button
+                        class="star fav"
+                        [class.on]="isFavorite('spell', spell.id)"
+                        title="Favorito"
+                        (click)="toggleFavorite('spell', spell.id, spell.name)"
+                      >
+                        ★
+                      </button>
                       <button class="spell-name" (click)="castSpell(spell, group.rank)">{{ spell.name }}</button>
                       <button class="info" title="Ver la descripción" (click)="verFicha('conjuro:' + spell.id)">ⓘ</button>
                       <span class="muted spell-meta">
@@ -1360,6 +1399,41 @@
       }
     </section>
   </div>
+
+  <!--
+    Fila de conjuro para Favoritos: el mismo formato que en la sección de
+    conjuros (estrella, nombre lanzable, ⓘ, defensa y los rangos a los que se
+    puede subir), sin lo que solo tiene sentido ahí (preparar, vaciar el slot).
+  -->
+  <ng-template #favSpellTpl let-spell let-rank="rank">
+    <div class="spell-row">
+      <button
+        class="star fav on"
+        title="Sacar de favoritos"
+        (click)="toggleFavorite('spell', spell.id, spell.name)"
+      >
+        ★
+      </button>
+      <button class="spell-name" (click)="castSpell(spell, rank)">{{ spell.name }}</button>
+      <button class="info" title="Ver la descripción" (click)="verFicha('conjuro:' + spell.id)">ⓘ</button>
+
+      <span class="muted spell-meta">
+        rango {{ rank }}
+        @if (spell.defense) {
+          · {{ spell.basicSave ? 'basic ' : '' }}{{ spell.defense }}
+        }
+        @if (spell.traits.includes('attack')) { · ataque }
+      </span>
+
+      @if (ranksFor(spell).length > 1) {
+        <span class="rank-picker">
+          @for (r of ranksFor(spell); track r) {
+            <button class="rank-btn" [title]="'Lanzar a rango ' + r" (click)="castSpell(spell, r)">{{ r }}</button>
+          }
+        </span>
+      }
+    </div>
+  </ng-template>
 
   <!--
     Un ataque se muestra igual sea melee o ranged, y se edita igual: una sola

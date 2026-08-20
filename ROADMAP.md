@@ -456,6 +456,25 @@ requisito de Fuerza).
       ve —botín, regalos, un PJ traído de otra app— y avisar por eso era ruido permanente
 - [x] Orden de secciones: **Favoritos primera**, y **Habilidades antes que Rasgos y dotes**
 
+### 4-novodecies. Favoritos por filas  ✅ HECHO
+
+- [x] **Filas, no tarjetas**: cada favorito ocupa el ancho completo, que es lo que hace falta
+      para mostrarlo como en su sección de origen
+- [x] Un **arma** favorita se ve igual que en Cuerpo a cuerpo / A distancia: los tres ataques con
+      su multiple attack penalty, el daño, fatal/deadly y el "personalizar". Reusa la misma
+      plantilla (`strikeTpl`), así que no hay dos formatos que mantener sincronizados
+- [x] Un **conjuro** se ve como en la sección de conjuros: nombre lanzable, ⓘ, rango, defensa y
+      los rangos a los que se puede subir
+- [x] **Los conjuros preparados y los del divine font ahora se pueden marcar** con ★. Eran los
+      que faltaban: los que se eligen cada día
+- [x] Lo que dejó de estar disponible **no desaparece**: se muestra apagado y tachado con el
+      motivo en un tag corto (*no preparado*, *no equipada*). Verificado vaciando el slot de un
+      conjuro preparado de Kyra: el favorito quedó, apagado, y volvió solo al prepararlo de nuevo
+
+Un favorito de conjuro está disponible exactamente cuando lo estaría abajo: `conjurosDisponibles`
+junta las mismas fuentes que ya muestra la sección (repertorio, cantrips, slots preparados,
+divine font y focus), así que no hay dos criterios distintos de "lo puedo lanzar".
+
 ### 5. Deudas conocidas
 
 - El ChoiceSet del tipo de dragón (linaje dracónico) trae la lista embebida en vez de
