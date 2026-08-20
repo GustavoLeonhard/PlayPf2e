@@ -607,3 +607,48 @@ planos con `message` y `code`. `String(e)` sobre eso imprime "[object Object]". 
 1. El dataset manda: antes de escribir una regla, buscarla en `.data-source/packs/`.
 2. Si no está en el dataset, se consulta AoN **confirmando que sea Legacy** (ver README).
 3. Los tests van contra el JSON importado, no contra fixtures inventados.
+
+### 4-vicies. Rango de proficiencia editable
+
+Las habilidades, los ataques y la armadura mostraban el rango (untrained,
+trained, expert…) como texto muerto. Ahora es un combo en el mismo lugar donde
+estaba el texto.
+
+- `build.proficiencyOverrides` guarda `{ skills, strikes, defenses }`. Las claves:
+  el slug de la habilidad (o `lore:x`), el id del arma, y la categoría de
+  armadura.
+- Se aplican **al final** de `computeProficiencies`, pisando el valor calculado.
+  Va último a propósito: `upgrade()` solo sube, y hay que poder bajar también
+  (que la app te dé de más es tan posible como que te dé de menos).
+- Los ataques no pasan por ahí porque `rankFor` toma el máximo entre varias
+  claves; el override se aplica directo en el strike, contra `weapon.id`. Dos
+  espadas largas iguales comparten id, y comparten el ajuste.
+- No hace falta recalcular nada a mano: el rango es una entrada de
+  `computeCharacter`, así que el modificador, la CA y los tres ataques del turno
+  se mueven solos.
+- `app-rank-select` es el combo, compartido por los tres lugares. El botón de
+  deshacer (↺, tooltip "Restablecer") aparece solo si el valor está puesto a
+  mano: si no, dieciséis habilidades serían dieciséis íconos de ruido.
+- Cuidado con `<select [value]>` en Angular: se aplica antes de que el `@for`
+  cree las opciones y se pierde. La selección va en `<option [selected]>`.
+
+### 4-unvicies. La ficha del ⓘ con los datos del manual
+
+El ⓘ mostraba solo la descripción. El texto de la espada larga habla de la
+hoja: no dice que hace 1d8 ni que ocupa una mano, que es lo que se consulta en
+la mesa. Ahora arriba de la descripción van los datos tabulados.
+
+- `rules/fichas.ts`: `datosDeEquipo`, `datosDeConjuro` y `datosDeDote` devuelven
+  pares etiqueta/valor. Está aparte del componente para poder testearlo contra
+  el pack real.
+- **Se omite lo vacío** en vez de mostrar un guion: una lista de veinte
+  renglones donde quince dicen "—" es peor que una de cinco.
+- Dureza y PV de la armadura vienen en cero del importador (fallo conocido, ver
+  pendientes). No se muestran: un "Dureza 0" es peor que nada, porque parece un
+  dato.
+- Una ficha ahora se guarda si tiene descripción **o** datos: un arma sin texto
+  de sabor igual tiene daño y volumen.
+- Normalizaciones mínimas donde el dato crudo no se lee: `usage:
+  held-in-one-hand` → "1 mano", `time: "2"` → "2 acciones", `actionType:
+  passive` se omite. El texto libre en inglés (alcance, objetivos) se deja como
+  viene: traducirlo a medias sería peor.

@@ -304,6 +304,13 @@
       <div class="card stat-big">
         <span class="label muted">Clase de armadura</span>
         <button class="value" (click)="toggleBreakdown('ac')">{{ s.ac.total }}</button>
+        <app-rank-select
+          class="small"
+          [rank]="s.acProficiency.rank"
+          [manual]="esProfManual('defenses', s.acProficiency.category)"
+          (rankChange)="setProficiency('defenses', s.acProficiency.category, $event)"
+          (restablecer)="clearProficiency('defenses', s.acProficiency.category)"
+        />
         @if (openBreakdown() === 'ac') {
           <div class="breakdown">
             @for (m of s.ac.breakdown; track $index) {
@@ -469,7 +476,13 @@
               ★
             </button>
             <button class="skill-name" (click)="roll(sk.name, sk.stat)">{{ sk.name }}</button>
-            <span class="rank muted">{{ proficiencyNames[sk.rank] }}</span>
+            <app-rank-select
+              class="rank"
+              [rank]="sk.rank"
+              [manual]="esProfManual('skills', sk.slug)"
+              (rankChange)="setProficiency('skills', sk.slug, $event)"
+              (restablecer)="clearProficiency('skills', sk.slug)"
+            />
             <button class="skill-mod" (click)="toggleBreakdown('sk-' + sk.slug)">{{ signed(sk.stat.total) }}</button>
           </div>
           @if (openBreakdown() === 'sk-' + sk.slug) {
@@ -492,7 +505,13 @@
               ★
             </button>
             <button class="skill-name" (click)="roll(lo.name, lo.stat)">{{ lo.name }}</button>
-            <span class="rank muted">{{ proficiencyNames[lo.rank] }}</span>
+            <app-rank-select
+              class="rank"
+              [rank]="lo.rank"
+              [manual]="esProfManual('skills', lo.slug)"
+              (rankChange)="setProficiency('skills', lo.slug, $event)"
+              (restablecer)="clearProficiency('skills', lo.slug)"
+            />
             <button class="skill-mod" (click)="toggleBreakdown(lo.slug)">{{ signed(lo.stat.total) }}</button>
           </div>
           @if (openBreakdown() === lo.slug) {
@@ -1486,7 +1505,13 @@
         @if (st.deadly) {
           <em class="crit-trait" title="En un crítico se suma un dado de este tamaño">· deadly {{ st.deadly }}</em>
         }
-        <em class="rank">· {{ proficiencyNames[st.proficiency] }}</em>
+        <em class="rank-sep">·</em>
+        <app-rank-select
+          [rank]="st.proficiency"
+          [manual]="esProfManual('strikes', st.profKey)"
+          (rankChange)="setProficiency('strikes', st.profKey, $event)"
+          (restablecer)="clearProficiency('strikes', st.profKey)"
+        />
         @if (st.inventoryIndex >= 0) {
           <button
             class="w-ok"
@@ -1813,7 +1838,16 @@
     <div class="roll-toast ficha-toast">
       <button class="close" (click)="ficha.set(null)">×</button>
       <span class="r-label">{{ f.titulo }}</span>
-      <div class="ficha-cuerpo" [innerHTML]="f.cuerpo"></div>
+      @if (f.datos.length) {
+        <dl class="ficha-datos">
+          @for (d of f.datos; track d.etiqueta) {
+            <div><dt>{{ d.etiqueta }}</dt><dd>{{ d.valor }}</dd></div>
+          }
+        </dl>
+      }
+      @if (f.cuerpo) {
+        <div class="ficha-cuerpo" [innerHTML]="f.cuerpo"></div>
+      }
     </div>
   }
 

@@ -1,4 +1,4 @@
-import type { Ability } from './content.model';
+import type { Ability, ProficiencyRank } from './content.model';
 
 /**
  * El personaje se guarda como LISTA DE ELECCIONES, no como hoja calculada.
@@ -185,6 +185,24 @@ export interface CharacterBuild {
    * Antes de esto, la única forma de arreglar un número era rehacer los boosts.
    */
   abilityOverrides?: Partial<Record<Ability, number>>;
+  /**
+   * Rangos de proficiencia escritos a mano, que pisan lo que sale de la clase,
+   * el trasfondo y los feats.
+   *
+   * Mismo motivo que abilityOverrides: un item, un arquetipo que la app no
+   * modela, o un personaje traído de otra herramienta. Un rango puesto acá
+   * manda, aunque sea MENOR que el calculado (bajar algo es tan válido como
+   * subirlo, y "upgrade" nunca dejaría bajarlo).
+   *
+   * Las claves: en skills el slug de la habilidad o `lore:x`; en strikes el id
+   * del arma (dos espadas largas iguales comparten id, y comparten el ajuste);
+   * en defenses la categoría de armadura (unarmored/light/medium/heavy).
+   */
+  proficiencyOverrides?: {
+    skills?: Record<string, ProficiencyRank>;
+    strikes?: Record<string, ProficiencyRank>;
+    defenses?: Record<string, ProficiencyRank>;
+  };
   choices: Choice[];
   /** Skills entrenadas por eleccion libre de clase (las adicionales). */
   trainedSkills: string[];

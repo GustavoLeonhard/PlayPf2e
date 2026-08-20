@@ -374,6 +374,12 @@
   font-size: 0.75rem;
 }
 
+/* El "·" que separaba el rango del resto de la línea del ataque. */
+.rank-sep {
+  font-style: normal;
+  opacity: 0.6;
+}
+
 .strike {
   display: grid;
   /* estrella · nombre (se estira) · ⓘ · los tres ataques */
@@ -1180,6 +1186,39 @@
   overflow-y: auto;
   align-items: flex-start;
   text-align: left;
+}
+
+/*
+  Los datos del manual, arriba de la descripción y en dos columnas: son pares
+  etiqueta/valor cortos, y en una sola columna la ficha se hacía larguísima.
+*/
+.ficha-datos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.1rem 0.9rem;
+  margin: 0.4rem 0 0.6rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+}
+
+.ficha-datos > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  /* Un renglón de puntos ata la etiqueta con su valor cuando quedan separados. */
+  border-bottom: 1px dotted color-mix(in srgb, var(--border) 60%, transparent);
+  padding: 0.12rem 0;
+}
+
+.ficha-datos dt {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.ficha-datos dd {
+  margin: 0;
+  text-align: right;
 }
 
 .ficha-cuerpo {

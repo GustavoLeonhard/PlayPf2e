@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { PROFICIENCY_BONUS } from './tables';
+
 import { emptyBuild, emptyState, type CharacterBuild, type NaturalWeapon } from '../models/character.model';
 import type {
   Ancestry,
@@ -18,6 +20,7 @@ import { buildStat, mod } from './modifiers';
 import { archetypeFeatAvailable } from './archetypes';
 import { CONDITIONS } from './conditions';
 import { COMMON_LANGUAGES, UNCOMMON_LANGUAGES } from './languages';
+import { datosDeConjuro, datosDeEquipo, formatBulk, tiempoDeLanzamiento } from './fichas';
 import { formatCp, priceToCp } from './money';
 import { cantripRank, scaledDamage, spellSlots } from './spellcasting';
 import { evaluatePrerequisite } from './prerequisites';
@@ -1417,5 +1420,133 @@ describe('puntuación de atributo escrita a mano', () => {
     const build = humanFighter();
     build.abilityOverrides = {};
     expect(computeCharacter(build, null, content).abilityScores.str).toBe(18);
+  });
+});
+
+describe('proficiencias pisadas a mano', () => {
+  it('sube una skill y arrastra el modificador', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+    const antes = base.skills.find((s) => s.slug === 'athletics')!;
+    expect(antes.rank).toBe(1);
+
+    const build = humanFighter();
+    build.proficiencyOverrides = { skills: { athletics: 3 } };
+    const sheet = computeCharacter(build, emptyState(), content);
+    const athletics = sheet.skills.find((s) => s.slug === 'athletics')!;
+
+    expect(athletics.rank).toBe(3);
+    // master son +6 en vez de +2: seis puntos más de modificador.
+    expect(athletics.stat.total).toBe(antes.stat.total + 4);
+  });
+
+  it('también puede BAJAR el rango, que es lo que upgrade() no dejaría', () => {
+    const build = humanFighter();
+    build.proficiencyOverrides = { skills: { athletics: 0 } };
+    const sheet = computeCharacter(build, emptyState(), content);
+    const athletics = sheet.skills.find((s) => s.slug === 'athletics')!;
+
+    expect(athletics.rank).toBe(0);
+    // Untrained no suma nivel: se pierden el +2 de trained y el +1 de nivel.
+    expect(athletics.stat.breakdown.some((m) => m.type === 'level')).toBe(false);
+  });
+
+  it('pisa la proficiencia de un arma sin tocar las demás', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+    const arma = base.strikes.find((s) => s.profKey && s.proficiency > 0) ?? base.strikes[0];
+
+    const build = humanFighter();
+    build.proficiencyOverrides = { strikes: { [arma.profKey]: 4 } };
+    const sheet = computeCharacter(build, emptyState(), content);
+    const tocada = sheet.strikes.find((s) => s.profKey === arma.profKey)!;
+
+    expect(tocada.proficiency).toBe(4);
+    expect(tocada.attack.total).toBe(arma.attack.total + (8 - PROFICIENCY_BONUS[arma.proficiency]));
+  });
+
+  it('pisa la proficiencia de armadura y mueve la CA', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+
+    const build = humanFighter();
+    build.proficiencyOverrides = { defenses: { [base.acProficiency.category]: 3 } };
+    const sheet = computeCharacter(build, emptyState(), content);
+
+    expect(sheet.acProficiency.rank).toBe(3);
+    expect(sheet.ac.total).toBe(base.ac.total + (6 - PROFICIENCY_BONUS[base.acProficiency.rank]));
+  });
+});
+
+describe('datos técnicos de la ficha (ⓘ)', () => {
+  const valor = (datos: { etiqueta: string; valor: string }[], etiqueta: string) =>
+    datos.find((d) => d.etiqueta === etiqueta)?.valor ?? null;
+
+  it('un arma trae daño, manos, categoría y grupo', () => {
+    const espada = equipment.find((e) => e.slug === 'longsword')!;
+    const datos = datosDeEquipo(espada);
+
+    expect(valor(datos, 'Daño')).toBe('1d8 slashing');
+    expect(valor(datos, 'Manos')).toBe('1 mano');
+    expect(valor(datos, 'Categoría')).toBe('Marcial');
+    expect(valor(datos, 'Grupo')).toBe('sword');
+    expect(valor(datos, 'Precio')).toBe('1 gp');
+    expect(valor(datos, 'Volumen')).toBe('1');
+  });
+
+  it('una armadura trae CA, tope de Destreza y penalidades', () => {
+    const escamas = equipment.find((e) => e.slug === 'scale-mail')!;
+    const datos = datosDeEquipo(escamas);
+
+    expect(valor(datos, 'Bonus a la CA')).toBe('+3');
+    expect(valor(datos, 'Máx. Destreza')).toBe('+2');
+    expect(valor(datos, 'Penalidad de chequeos')).toBe('-2');
+    expect(valor(datos, 'Penalidad de velocidad')).toBe('-5 pies');
+    expect(valor(datos, 'Requisito de Fuerza')).toBe('Fue 2');
+    // El importador trae hardness/maxHp en cero para toda la armadura: no se
+    // muestra un dato que sabemos falso.
+    expect(valor(datos, 'Dureza')).toBeNull();
+  });
+
+  it('no inventa filas para lo que el objeto no tiene', () => {
+    const escamas = equipment.find((e) => e.slug === 'scale-mail')!;
+    const datos = datosDeEquipo(escamas);
+
+    expect(valor(datos, 'Daño')).toBeNull();
+    expect(valor(datos, 'Alcance')).toBeNull();
+    expect(datos.every((d) => d.valor !== '' && d.valor !== 'null')).toBe(true);
+  });
+
+  it('el bulk liviano se lee como "L", no como 0.1', () => {
+    expect(formatBulk(0.1)).toBe('L');
+    expect(formatBulk(0)).toBe('—');
+    expect(formatBulk(2)).toBe('2');
+  });
+
+  it('un conjuro trae alcance, defensa y tradiciones', () => {
+    const bola = spells.find((s) => s.slug === 'fireball')!;
+    const datos = datosDeConjuro(bola);
+
+    expect(valor(datos, 'Alcance')).toBe(bola.range);
+    expect(valor(datos, 'Tradiciones')).toBe(bola.traditions.join(', '));
+    // Fireball pide una Refleja básica: el "básica" cambia cómo se resuelve.
+    expect(valor(datos, 'Defensa')).toContain('básica');
+  });
+});
+
+describe('tiempo de lanzamiento', () => {
+  it('un número pelado son acciones', () => {
+    expect(tiempoDeLanzamiento('2')).toBe('2 acciones');
+    expect(tiempoDeLanzamiento('1')).toBe('1 acción');
+    expect(tiempoDeLanzamiento('1 to 3')).toBe('1 to 3 acciones');
+  });
+
+  it('deja pasar el texto que ya se explica solo', () => {
+    expect(tiempoDeLanzamiento('1 minute')).toBe('1 minute');
+    expect(tiempoDeLanzamiento('reaction')).toBe('Reacción');
+  });
+
+  it('cubre todos los valores que trae el pack sin dejar ninguno como número suelto', () => {
+    for (const s of spells) {
+      const salida = tiempoDeLanzamiento(s.time);
+      expect(/^\d+$/.test(salida)).toBe(false);
+    }
   });
 });

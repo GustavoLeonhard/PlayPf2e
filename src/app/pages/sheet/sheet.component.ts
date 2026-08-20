@@ -12,17 +12,19 @@ import {
   type NaturalWeapon,
 } from '../../core/models/character.model';
 import { ABILITIES, ABILITY_NAMES, PROFICIENCY_NAMES } from '../../core/models/content.model';
-import type { Ability, Equipment, Feat, Spell } from '../../core/models/content.model';
+import type { Ability, Equipment, Feat, ProficiencyRank, Spell } from '../../core/models/content.model';
 import { archetypeFeatAvailable, isArchetypeFeat, ownedDedications } from '../../core/rules/archetypes';
 import { CONDITION_BY_ID } from '../../core/rules/conditions';
 import { criticalTotal, rollFormula, type DiceRoll } from '../../core/rules/dice';
 import { COMMON_LANGUAGES, UNCOMMON_LANGUAGES, languageLabel } from '../../core/rules/languages';
+import { datosDeConjuro, datosDeDote, datosDeEquipo, type Dato } from '../../core/rules/fichas';
 import { formatCp, priceToCp, splitCp } from '../../core/rules/money';
 import { castableRanks, scaledDamage } from '../../core/rules/spellcasting';
 import { computeCharacter, type ContentIndex, type FeatSource, type StrikeSheet } from '../../core/rules/character.engine';
 import { signed, type Stat } from '../../core/rules/modifiers';
 import { CharacterService } from '../../core/services/character.service';
 import { AccordionComponent } from '../../shared/accordion.component';
+import { RankSelectComponent } from '../../shared/rank-select.component';
 import { ContentService, type ConditionText } from '../../core/services/content.service';
 
 /** Un favorito ya resuelto contra la hoja de ahora. Ver `favorites`. */
@@ -54,9 +56,19 @@ export interface RollResult {
   save?: string;
 }
 
+/** Lo que muestra el ⓘ: los datos del manual y el texto de la descripción. */
+interface Ficha {
+  titulo: string;
+  cuerpo: string;
+  datos: Dato[];
+}
+
+/** Los tres lugares donde el rango se puede pisar a mano. */
+type GrupoProf = 'skills' | 'strikes' | 'defenses';
+
 @Component({
   selector: 'app-sheet',
-  imports: [RouterLink, NgTemplateOutlet, AccordionComponent],
+  imports: [RouterLink, NgTemplateOutlet, AccordionComponent, RankSelectComponent],
   templateUrl: './sheet.component.html',
   styleUrl: './sheet.component.scss',
 })
@@ -421,6 +433,39 @@ export class SheetComponent implements OnInit {
 
   esAbilityManual = (ability: Ability): boolean =>
     this.record()?.build.abilityOverrides?.[ability] !== undefined;
+
+  // ----------------------------------------------------------- proficiencias
+
+  /**
+   * Pisar a mano el rango de una habilidad, un ataque o la armadura.
+   *
+   * El motor recalcula todo lo que cuelga del rango —el modificador, la CA, los
+   * tres ataques del turno— porque el rango entra a computeCharacter como una
+   * entrada más. No hace falta tocar nada de eso acá.
+   */
+  async setProficiency(grupo: GrupoProf, clave: string, rango: ProficiencyRank) {
+    const record = this.record();
+    if (!record) return;
+
+    const overrides = record.build.proficiencyOverrides ?? {};
+    record.build.proficiencyOverrides = { ...overrides, [grupo]: { ...overrides[grupo], [clave]: rango } };
+    await this.guardar(record);
+  }
+
+  /** Volver al rango que sale de la clase, el trasfondo y los feats. */
+  async clearProficiency(grupo: GrupoProf, clave: string) {
+    const record = this.record();
+    if (!record) return;
+
+    const overrides = record.build.proficiencyOverrides ?? {};
+    const restantes = { ...overrides[grupo] };
+    delete restantes[clave];
+    record.build.proficiencyOverrides = { ...overrides, [grupo]: restantes };
+    await this.guardar(record);
+  }
+
+  esProfManual = (grupo: GrupoProf, clave: string): boolean =>
+    this.record()?.build.proficiencyOverrides?.[grupo]?.[clave] !== undefined;
 
   // ------------------------------------------------------------------ visión
 
@@ -1041,12 +1086,17 @@ export class SheetComponent implements OnInit {
     const sheet = this.sheet();
     const index = this.index();
     const record = this.record();
-    const salida = new Map<string, { titulo: string; cuerpo: string }>();
+    const salida = new Map<string, Ficha>();
     if (!sheet || !index) return salida;
 
-    const guardar = (clave: string, titulo: string, cuerpo?: string | null) => {
+    /*
+     * Alcanza con que haya UNA de las dos cosas. Un arma sin texto de sabor
+     * igual tiene daño, volumen y manos, que es lo que se consulta en la mesa;
+     * al revés, un rasgo tiene texto y ningún dato tabulado.
+     */
+    const guardar = (clave: string, titulo: string, cuerpo?: string | null, datos: Dato[] = []) => {
       const limpio = (cuerpo ?? '').trim();
-      if (limpio) salida.set(clave, { titulo, cuerpo: limpio });
+      if (limpio || datos.length) salida.set(clave, { titulo, cuerpo: limpio, datos });
     };
 
     /*
@@ -1065,24 +1115,27 @@ export class SheetComponent implements OnInit {
       if (f.id) guardar(`rasgo:${f.id}`, f.name, descripcionDe(f.id));
     }
     for (const f of sheet.feats) {
-      guardar(`dote:${f.id}`, f.name, descripcionDe(f.id));
+      const dote = index.featById.get(f.id);
+      guardar(`dote:${f.id}`, f.name, descripcionDe(f.id), dote ? datosDeDote(dote) : []);
     }
 
     // Todo lo que está en la mochila, por posición: es lo que tienen a mano las
     // filas de inventario, los ataques y las defensas.
     (record?.build.inventory ?? []).forEach((item, i) => {
       const base = index.equipmentById.get(item.id);
-      if (base) guardar(`item:${i}`, base.name, base.description);
+      if (base) guardar(`item:${i}`, base.name, base.description, datosDeEquipo(base));
     });
 
-    for (const spell of this.spellList()) guardar(`conjuro:${spell.id}`, spell.name, spell.description);
+    for (const spell of this.spellList()) {
+      guardar(`conjuro:${spell.id}`, spell.name, spell.description, datosDeConjuro(spell));
+    }
     for (const c of this.conditionList()) guardar(`condicion:${c.id}`, c.name, c.text);
 
     return salida;
   });
 
   /** La ficha abierta, o null. Se muestra como el resultado de una tirada. */
-  readonly ficha = signal<{ titulo: string; cuerpo: string } | null>(null);
+  readonly ficha = signal<Ficha | null>(null);
 
   verFicha(clave: string) {
     const encontrada = this.fichas().get(clave);

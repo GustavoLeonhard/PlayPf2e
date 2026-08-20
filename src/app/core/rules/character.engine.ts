@@ -200,6 +200,8 @@ export interface StrikeSheet {
   damage: Stat;
   damageType: string;
   proficiency: ProficiencyRank;
+  /** Clave con la que se pisa el rango a mano (ver proficiencyOverrides). */
+  profKey: string;
   traits: string[];
 }
 
@@ -221,6 +223,8 @@ export interface CharacterSheet {
   abilityChecks: Record<Ability, Stat>;
   maxHp: Stat;
   ac: Stat;
+  /** Con qué proficiencia se está calculando la CA, y cuánto vale hoy. */
+  acProficiency: { category: string; rank: ProficiencyRank };
   perception: Stat;
   saves: Record<'fortitude' | 'reflex' | 'will', Stat>;
   classDC: Stat;
@@ -646,6 +650,23 @@ function computeProficiencies(
 
   applyRules(activeFeatures);
   applyRules(chosenFeats);
+
+  /*
+   * Lo último: lo escrito a mano gana. Va después de todo a propósito, porque
+   * upgrade() solo sube y acá hace falta poder bajar también.
+   */
+  const ovr = build.proficiencyOverrides;
+  for (const [clave, rango] of Object.entries(ovr?.skills ?? {})) {
+    if (clave.startsWith('lore:')) {
+      const lore = prof.lores[clave];
+      if (lore) lore.rank = rango;
+    } else if (clave in skills) {
+      skills[clave] = rango;
+    }
+  }
+  for (const [clave, rango] of Object.entries(ovr?.defenses ?? {})) {
+    if (clave in prof.defenses) prof.defenses[clave as keyof typeof prof.defenses] = rango;
+  }
 
   return prof;
 }
@@ -1092,13 +1113,19 @@ export function computeCharacter(
   ]
     .map(({ weapon, custom, inventoryIndex, naturalId }) => {
       const keys = attackProficiencyKeys(weapon);
-      const rank = rankFor(prof, keys);
+      const ajuste = build.proficiencyOverrides?.strikes?.[weapon.id];
+      const rank = ajuste ?? rankFor(prof, keys);
+      const etiquetaProf = ajuste != null
+        ? weapon.name
+        : weapon.group === 'firearm'
+          ? 'Armas de fuego'
+          : keys[keys.length - 1];
       const ranged = weapon.range != null || weapon.traits.some((t) => t.startsWith('range') || t === 'thrown');
       const ability: Ability = ranged || weapon.traits.includes('finesse') ? 'dex' : 'str';
 
       const attack = buildStat([
         mod(ability.toUpperCase(), mods[ability], 'ability'),
-        ...proficiencyMods(rank, level, weapon.group === 'firearm' ? 'Armas de fuego' : keys[keys.length - 1]),
+        ...proficiencyMods(rank, level, etiquetaProf),
         // El bonus del master entra como bonus de objeto, igual que una runa de potencia.
         ...(custom?.bonusAttack ? [mod(weapon.name, custom.bonusAttack, 'item')] : []),
         ...conditionModifiers(state, ['attack', `${ability}-based`, 'all-checks']),
@@ -1149,6 +1176,8 @@ export function computeCharacter(
         damage: buildStat(damageMods),
         damageType: dmg?.damageType ?? '',
         proficiency: rank,
+        /** Clave con la que se pisa el rango a mano (ver proficiencyOverrides). */
+        profKey: weapon.id,
         traits: weapon.traits,
       };
     });
@@ -1384,6 +1413,7 @@ export function computeCharacter(
     abilityChecks,
     maxHp: buildStat(hpMods),
     ac: buildStat(acMods),
+    acProficiency: { category: armorCategory, rank: prof.defenses[armorCategory] ?? 0 },
     perception: buildStat(perceptionMods),
     saves,
     classDC,
