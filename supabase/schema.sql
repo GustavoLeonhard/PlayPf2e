@@ -253,3 +253,9 @@ create or replace function public.peek_party_by_token(token uuid)
 returns table (id uuid, name text) language sql security definer stable set search_path = public as $$
   select p.id, p.name from public.parties p where p.invite_token = token;
 $$;
+
+-- ---------------------------------------------------------------- avatar
+-- El avatar viaja como data URL en la misma fila del perfil, igual que el
+-- retrato del personaje: son 256x256 en JPEG, unos pocos KB. Montar Storage
+-- para eso seria mas piezas moviles de las que hacen falta.
+alter table public.profiles add column if not exists avatar text not null default '';

@@ -1,5 +1,8 @@
 import type { Equipment, Feat, Spell } from '../models/content.model';
 import { formatCp, priceToCp } from './money';
+import { avisosDe, esAplicable, selectoresDe, valorDe, type Effect } from './efectos';
+import { efectoAMano } from './efectos-a-mano';
+import { dadosPorStriking, fichaDeRuna, resumenDeRunas } from './runas';
 
 /** Una línea de la ficha: "Daño — 1d8 slashing". */
 export interface Dato {
@@ -80,30 +83,47 @@ export function datosDeEquipo(item: Equipment): Dato[] {
 
   push('Tipo', TIPOS[item.type] ?? item.type);
   if (item.level > 0) push('Nivel', item.level);
-  push('Precio', item.price ? formatCp(priceToCp(item.price)) : null);
+  // Un artefacto no tiene precio: "0 gp" diría que es gratis.
+  const cp = priceToCp(item.price);
+  push('Precio', cp > 0 ? formatCp(cp) : null);
   push('Volumen', formatBulk(item.bulk));
   push('Manos', USOS[item.usage] ?? (item.usage ? legible(item.usage) : null));
   push('Categoría', item.category ? (CATEGORIAS[item.category] ?? item.category) : null);
   push('Grupo', item.group ? legible(item.group) : null);
 
-  // Arma
-  push('Daño', item.damage ? `${item.damage.dice}${item.damage.die} ${item.damage.damageType}` : null);
+  // Arma. Con striking se muestran los dados que se tiran de verdad, porque
+  // "1d8" al lado de "greater striking" se lee como una contradicción.
+  const dados = item.damage ? item.damage.dice * dadosPorStriking(item.runes?.striking ?? 0) : 0;
+  const base = item.damage && dados !== item.damage.dice ? ` (base ${item.damage.dice}${item.damage.die})` : '';
+  push('Daño', item.damage ? `${dados}${item.damage.die} ${item.damage.damageType}${base}` : null);
   push('Alcance', item.range ? `${item.range} pies` : null);
-  push('Recarga', item.reload ? `${item.reload} ${item.reload === '1' ? 'acción' : 'acciones'}` : null);
+  // El pack usa "-" para "no se recarga"; no es un número de acciones.
+  const recarga = item.reload && item.reload !== '-' && item.reload !== '0' ? item.reload : null;
+  push('Recarga', recarga ? `${recarga} ${recarga === '1' ? 'acción' : 'acciones'}` : null);
 
   // Armadura y escudo
   push('Bonus a la CA', item.acBonus != null ? `+${item.acBonus}` : null);
   push('Máx. Destreza', item.dexCap != null ? `+${item.dexCap}` : null);
   push('Penalidad de chequeos', item.checkPenalty || null);
   push('Penalidad de velocidad', item.speedPenalty ? `${item.speedPenalty} pies` : null);
-  push('Requisito de Fuerza', item.strength != null ? `Fue ${item.strength}` : null);
+  push('Requisito de Fuerza', item.strength ? `Fue ${item.strength}` : null);
   /*
-   * Dureza y PV vienen en cero para TODA la armadura del pack: es un fallo del
-   * importador, no un dato real. Mostrar "Dureza 0" sería peor que no mostrarla.
+   * Dureza y PV vienen en cero para TODA la armadura, y NO es culpa del
+   * importador: el pack de origen los trae en cero (Foundry los deriva del
+   * material en tiempo de ejecución). Los escudos sí los traen, y se muestran.
+   * Un "Dureza 0" sería peor que no mostrar nada, porque parece un dato.
    */
   push('Dureza', item.hardness || null);
   push('PV', item.maxHp || null);
 
+  push('Runas', resumenDeRunas(item.runes));
+  // Cada runa de propiedad con lo que hace, en un renglón: el resumen
+  // ("+1 striking flaming") dice cuáles tenés, no qué hacen.
+  for (const r of item.runes?.property ?? []) {
+    const ficha = fichaDeRuna(r);
+    datos.push({ etiqueta: ficha.nombre, valor: ficha.resumen });
+  }
+  push('Material', item.material ? [item.material.grade, item.material.type].filter(Boolean).join(' ') : null);
   push('Rasgos', item.traits.length ? item.traits.map(legible).join(', ') : null);
   if (item.rarity && item.rarity !== 'common') push('Rareza', RAREZAS[item.rarity] ?? item.rarity);
   push('Fuente', item.source);
@@ -150,6 +170,46 @@ export function datosDeConjuro(spell: Spell): Dato[] {
   push('Fuente', spell.source);
 
   return datos;
+}
+
+/** Duración y qué mueve, para el ⓘ de un efecto activo. */
+export function datosDeEfecto(efecto: Effect): Dato[] {
+  const datos: Dato[] = [];
+  const push = (etiqueta: string, valor: string | number | null | undefined) => {
+    if (valor !== null && valor !== undefined && valor !== '') datos.push({ etiqueta, valor: String(valor) });
+  };
+
+  push('Duración', duracionLegible(efecto.duration));
+  if (efecto.level > 0) push('Nivel', efecto.level);
+
+  // Lo que efectivamente mueve, resuelto: es la pregunta que trae a alguien acá.
+  const mueve = efecto.rules
+    .filter(esAplicable)
+    .map((r) => `${signo(valorDe(r)!)} ${r.type ?? 'sin tipo'} a ${selectoresDe(r).join(', ')}`);
+  push('Modifica', mueve.length ? mueve.join(' · ') : null);
+
+  // Para los de la tabla escrita a mano mandan sus avisos: los deducidos del
+  // pack dirían "la hoja no calcula X" justo de lo que la tabla sí calcula.
+  const aMano = efectoAMano(efecto.slug);
+  for (const aviso of aMano?.avisos ?? avisosDe(efecto)) datos.push({ etiqueta: 'Ojo', valor: aviso });
+
+  if (efecto.traits.length) push('Rasgos', efecto.traits.map(legible).join(', '));
+  push('Fuente', efecto.source);
+  return datos;
+}
+
+const signo = (n: number) => (n >= 0 ? `+${n}` : String(n));
+
+function duracionLegible(d: { value: number; unit: string }): string {
+  if (!d || d.unit === 'unlimited' || d.value < 0) return 'Hasta que la apagues';
+  const unidades: Record<string, string> = {
+    rounds: 'asalto',
+    minutes: 'minuto',
+    hours: 'hora',
+    days: 'día',
+  };
+  const nombre = unidades[d.unit] ?? d.unit;
+  return `${d.value} ${nombre}${d.value === 1 ? '' : 's'}`;
 }
 
 export function datosDeDote(feat: Feat): Dato[] {

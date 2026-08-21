@@ -1,7 +1,9 @@
-import { Component, inject } from '@angular/core';
+import { Component, effect, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
+import { iniciales } from './core/rules/imagen';
 import { AuthService } from './core/services/auth.service';
+import { ProfileService } from './core/services/profile.service';
 
 @Component({
   selector: 'app-root',
@@ -10,7 +12,7 @@ import { AuthService } from './core/services/auth.service';
     <header class="topbar">
       <a class="brand" routerLink="/characters">
         <span class="d20">⬢</span>
-        <span>PF2e Builder <small class="muted">legacy</small></span>
+        <span>PlayPf2e <small class="muted">legacy</small></span>
       </a>
 
       @if (auth.isLoggedIn()) {
@@ -25,8 +27,19 @@ import { AuthService } from './core/services/auth.service';
               modo local
             </span>
           }
-          <span class="muted email">{{ auth.email() }}</span>
-          <button class="btn ghost" (click)="logout()">Salir</button>
+          <!--
+            El perfil es el avatar: es el lugar donde uno lo busca, y de paso el
+            avatar sirve de aviso de que hay algo para configurar ahí.
+          -->
+          <a class="perfil-link" routerLink="/profile" routerLinkActive="on" title="Mi perfil">
+            @if (perfil.avatar(); as url) {
+              <img class="avatar" [src]="url" alt="" />
+            } @else {
+              <span class="avatar vacio">{{ iniciales(perfil.nombre()) }}</span>
+            }
+            <span class="muted email">{{ perfil.nombre() }}</span>
+          </a>
+          <button class="icono" title="Salir" aria-label="Salir" (click)="logout()">⏻</button>
         </div>
       }
     </header>
@@ -86,6 +99,33 @@ import { AuthService } from './core/services/auth.service';
       gap: 0.6rem;
     }
 
+    .perfil-link {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .perfil-link.on .email,
+    .perfil-link:hover .email {
+      color: var(--accent-strong);
+    }
+
+    .icono {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1.15rem;
+      line-height: 1;
+      padding: 0.2rem 0.3rem;
+    }
+
+    .icono:hover {
+      color: var(--danger);
+    }
+
     @media (max-width: 560px) {
       .email {
         display: none;
@@ -95,7 +135,18 @@ import { AuthService } from './core/services/auth.service';
 })
 export class App {
   readonly auth = inject(AuthService);
+  readonly perfil = inject(ProfileService);
   private router = inject(Router);
+
+  readonly iniciales = iniciales;
+
+  constructor() {
+    // El perfil se carga cuando aparece la sesión: al arrancar todavía no hay
+    // userId (la restauración de Supabase es asíncrona).
+    effect(() => {
+      if (this.auth.isLoggedIn()) void this.perfil.cargar();
+    });
+  }
 
   async logout() {
     await this.auth.signOut();

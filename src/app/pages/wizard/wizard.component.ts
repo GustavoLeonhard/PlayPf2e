@@ -294,7 +294,33 @@ export class WizardComponent {
   }
 
   setHeritage(id: string | null) {
-    this.patch((b) => (b.heritage = id));
+    this.patch((b) => {
+      b.heritage = id;
+      // Cambiar de herencia tira la skill elegida: la promete la herencia, no vos.
+      b.heritageSkill = null;
+    });
+  }
+
+  /**
+   * La skill que promete la herencia, si la promete.
+   *
+   * Sale de la regla del pack (`skills.{elegida}`), no de una lista escrita a
+   * mano: hoy son Skilled Heritage y Ancient Ash, y si mañana el pack trae otra
+   * aparece sola.
+   */
+  readonly heritageSkillChoices = computed<{ id: string; label: string }[]>(() => {
+    const heritage = this.heritages().find((h) => h.id === this.build().heritage);
+    if (!heritage?.rules.some((r) => r.key === 'Proficiency' && r.elegida)) return [];
+
+    const choiceSet = heritage.rules.find((r) => r.key === 'ChoiceSet');
+    return (choiceSet?.choices ?? []).map((c) => ({
+      id: c.id,
+      label: SKILLS.find((s) => s.slug === c.id)?.name ?? c.id,
+    }));
+  });
+
+  setHeritageSkill(slug: string) {
+    this.patch((b) => (b.heritageSkill = slug || null));
   }
 
   setBackground(slug: string | null) {

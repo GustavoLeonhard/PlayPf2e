@@ -652,3 +652,271 @@ la mesa. Ahora arriba de la descripción van los datos tabulados.
   held-in-one-hand` → "1 mano", `time: "2"` → "2 acciones", `actionType:
   passive` se omite. El texto libre en inglés (alcance, objetivos) se deja como
   viene: traducirlo a medias sería peor.
+
+### 4-duovicies. Importador, marca, perfil y plegado
+
+**Importador.** Lo que se perdía no era la dureza de la armadura (eso ya viene
+en cero desde el pack de origen; Foundry la deriva del material en tiempo de
+ejecución, y los escudos sí la traen bien: 143 de 143). Lo que se perdía eran
+las **runas**: 323 objetos mágicos se importaban como si fueran mundanos,
+porque potency/striking/resilient no están en `damage` ni en `bonus`, están en
+`system.runes`. Ahora se importan, junto con el material. **Falta aplicarlas en
+el motor** — ver pendientes.
+
+**PlayPf2e.** El título del sitio y la marca de la barra.
+
+**Subir nivel** sale del listado de personajes: se hace desde la hoja, donde se
+ve contra qué se está subiendo. En el listado era un atajo para subir a ciegas.
+
+**Perfil** (`/profile`): nombre y avatar. El nombre por defecto es la parte del
+mail antes del arroba, el mismo criterio que ya usaba el trigger de la base. El
+avatar por defecto son las iniciales, no un hueco. En la barra, el perfil ES el
+avatar (es donde uno lo busca) y "Salir" pasó a ser un ícono con tooltip.
+Requiere correr la migración: `alter table public.profiles add column avatar`.
+
+**Plegado por personaje.** La primera vez la hoja abre todo; después recuerda
+cómo la dejaste, por personaje. Vive en localStorage y no en el registro: es
+una preferencia de cómo mirás la hoja, no un dato del PJ — guardarla en la base
+costaría un viaje al servidor por cada plegado y se llevaría el plegado de una
+pantalla grande a un teléfono. El acordeón se registra solo por su título, así
+que no hubo que tocar las diez secciones de la plantilla.
+
+**Contraste del combo de rango.** La lista desplegada la pinta el sistema
+operativo y heredaba el `background: transparent` del select, así que el texto
+quedaba del color del fondo. Las `option` necesitan su propio par color/fondo.
+(De paso: el componente usaba `var(--fg)`, que no existe — es `--text`.)
+
+### 4-tervicies. Runas aplicadas
+
+Reglas confirmadas contra la fuente Legacy (Notebook LM, 2026-08-20) y
+anotadas en `rules/runas.ts`:
+
+- **Potency**: bonus de OBJETO al ataque; no suma daño. En armadura sube el
+  bonus de objeto a la CA que la armadura ya da. Entra por el pipeline, así que
+  no acumula con un bonus de objeto puesto a mano — se aplica el mayor, y el
+  otro se ve tachado en el breakdown.
+- **Striking**: multiplica los DADOS (2/3/4 del mismo tamaño). Los planos
+  —Fuerza, dotes, Weapon Specialization— quedan intactos. Un arma
+  personalizada que ya declaró sus dados manda sobre la runa.
+- **Resilient**: bonus de objeto a las tres salvaciones (+1/+2/+3).
+- **Runas de propiedad**: las diez elementales (flaming, frost, shock,
+  corrosive, thundering y sus greater) suman **una línea de daño aparte**, no
+  sumada al dado del arma: las resistencias del enemigo se aplican por tipo y
+  ese dado no se duplica en un crítico. Las otras 34 se listan en la ficha.
+
+En la ficha, un arma con striking muestra los dados que se tiran de verdad
+("3d8 (base 1d8)"): "1d8" al lado de "greater striking" se lee como una
+contradicción.
+
+**Pendiente**: las runas de propiedad con bonus pasivo (Shadow → +1 de objeto a
+Sigilo, Slick → +1 a Acrobacias, Fortification, etc.). Son ~34 runas, cada una
+con su efecto: hace falta una tabla, no una regla general.
+
+### 4-quatervicies. Tabla de runas y descripciones rotas
+
+**Segundo fallo del importador, más grave que el de las runas.** Los templates
+de Foundry anidan corchetes (`@Damage[1d6[bleed]]`) y el patrón `\[[^\]]+\]`
+cortaba en el primer `]`, dejando el otro suelto Y perdiendo el número. Por eso
+la runa Wounding decía *"you deal an extra ] damage"* y los colmillos de la
+anadi *"deals ] damage"*. Afectaba a **todo el dataset**, no solo a las runas.
+Arreglado para `@Damage`, `@Check`, `@Template`, `@Localize`, `@Compendium` y
+las tiradas en línea `[[/r (3d8+8)[healing]]]`. Quedan 13 descripciones con un
+`]`, y son corchetes reales del texto ("hammers [Strength]"). Cero templates
+sin resolver.
+
+**Tabla de las 44 runas de propiedad** (`rules/runas.ts`). Los efectos salen
+del texto del propio pack, no de memoria — que es justamente lo que el arreglo
+de arriba hizo legible.
+
+Lo que la tabla deja claro: **casi ninguna runa es un bonus plano que se pueda
+sumar**. El +2 de Slick es solo para Escapar y Colarse; el +1 de Antimagic solo
+contra magia; el 1d6 de Disrupting solo contra no-muertos. Sumarlos al total
+inflaría todas las tiradas que NO cumplen la condición. Así que se clasifican:
+
+- **Daño incondicional** (elementales, Greater Impactful, el 1d4 de fuego de
+  Brilliant) → entra al cálculo, en línea aparte.
+- **Daño según el objetivo** (Disrupting, Holy, Unholy, Bane, y el resto de
+  Brilliant) → se muestra apagado, "(+1d6 positive vs no-muertos)".
+- **Bonus situacionales** (Slick, Antimagic, Underwater) → se muestran con su
+  condición escrita.
+- **Efectos que se disparan en la mesa** (Keen, Speed, Returning…) → una línea
+  en la ficha con lo que hacen.
+
+Un test recorre el pack y falla si aparece una runa sin ficha, así que la tabla
+no se puede quedar atrás en silencio.
+
+### 4-quinvicies. Efectos activos (capa 1)
+
+La furia del bárbaro, el garbo, un heroism: todo lo que se prende un rato y
+mueve números. Resulta que ya lo teníamos medio resuelto —el garbo funciona
+así— y lo que faltaba era generalizarlo.
+
+**Los efectos son condiciones que elegís vos**, así que entran por el mismo
+pipeline. En `computeCharacter` hay ahora un solo `situacion(selectores)` que
+junta condiciones y efectos, y los 13 sitios que llamaban a
+`conditionModifiers` pasan por ahí. Cada fórmula del motor los recibe sin
+enterarse de cuál es cuál.
+
+**Vienen del pack, no escritos a mano.** El importador ahora lee los cuatro
+packs de efectos: **1418 efectos con sus reglas ya escritas**. El
+`Effect: Panache` del pack dice literalmente lo que nosotros habíamos escrito
+a mano en `panache.ts`.
+
+Números de la cobertura: de 1073 FlatModifier, **973 tienen un selector que el
+motor entiende** y **446 se aplican enteros**. Los 527 restantes no se aplican
+a propósito:
+
+- **Con predicado** (521): valen solo en cierta situación. El +1 del garbo es
+  solo para Tumble Through — sumarlo a Acrobatics entero mentiría en todas las
+  demás tiradas. Misma decisión que con las runas.
+- **Valor por fórmula o tabla**: el de Heroism depende del rango con el que se
+  lanzó. Devolver null y no aplicar nada es deliberado: un efecto que suma de
+  menos se nota, uno que suma cualquier cosa no.
+
+Todo lo que no se calcula **se avisa** al lado del interruptor ("incluye HP
+temporales, que la hoja no calcula"). Se filtra el cableado interno de Foundry
+(`RollOption`, `ActiveEffectLike`), que no es algo que el jugador tenga que
+saber.
+
+Verificado en vivo: Longstrider lleva a Durin de 15 a 25 ft con
+`Longstrider +10` en el desglose, dos bonus de estado a velocidad no se suman
+(gana el mayor), y Rage se prende avisando de los HP temporales.
+
+**Pendiente — capa 2.** La rabia NO está en los datos: el `Effect: Rage` solo
+trae los HP temporales; el +2 al daño cuerpo a cuerpo, el −1 a la CA y "mitad
+si el arma es agile" Foundry los tiene en código. Van a mano en `rules/rabia.ts`,
+y antes hay que confirmar por Notebook LM: si el +2 sube con el nivel, si los
+HP temporales se recalculan al subir de nivel en plena furia, y si el −1 de CA
+es de estado o sin tipo.
+
+### 4-sexvicies. La furia (capa 2)
+
+Lo que el pack no trae, escrito a mano en `rules/rabia.ts` y confirmado con la
+fuente Legacy (Notebook LM, 2026-08-21):
+
+- **+2 al daño** cuerpo a cuerpo y desarmado. **Fijo**: no sube con el nivel.
+  **La mitad si el arma es agile** (+1), que es la contrapartida de poder
+  atacar más veces. A distancia no suma nada.
+- **−1 a la CA, SIN TIPO.** Importa: al no tener tipo acumula con todo en vez
+  de competir con un bonus de objeto o de estado por el mayor.
+- **HP temporales = nivel + Constitución**, fijados al entrar en furia. No se
+  recalculan si sube el nivel: se asume que no se sube de nivel entre acciones
+  de una aventura.
+
+Lo que la hoja no puede impedir (no usar acciones con `concentrate`, no salir
+de la furia voluntariamente, perder los HP temporales al salir) se muestra
+escrito en la tarjeta.
+
+**Se prende con el mismo `Effect: Rage` del pack**, no con un interruptor
+propio: para el jugador es un efecto más de la lista, y el estado vive en un
+solo lugar. La tarjeta de la hoja es un atajo para apagarla.
+
+Verificado en vivo: CA 17 → 16, y el Puño pasa de `1d4-1` a `1d4` — **+1 y no
++2, porque el puño es agile**.
+
+### 4-septemvicies. Efectos como pestaña, y la tabla de los escritos a mano
+
+**Pestaña propia.** Los efectos salieron del panel apretado de arriba y son una
+sección como Habilidades: una fila entera por efecto, con nombre, ⓘ, qué hace
+en un renglón, y quitar. Se agregan desde el buscador de la misma sección.
+Arriba queda solo el resumen (cuántos hay activos, con sus tags para apagar de
+un toque). El ⓘ arma la ficha con la duración y **qué modifica ya resuelto**
+(“+10 status a speed”), que es la pregunta que trae a alguien ahí.
+
+**`rules/efectos-a-mano.ts`**: la tabla de los que el pack trae vacíos y
+nosotros sí sabemos calcular. De los 1418, **1001 no traen ningún número**
+porque Foundry los resuelve en código. La mayoría son narrativos de verdad,
+pero unos pocos son mecánica pura y conocida. La tabla crece de a uno y solo
+con reglas confirmadas: un efecto mal calculado es peor que uno no calculado,
+porque el número se ve igual de cierto.
+
+Dos formas de resolverlos:
+
+1. **Propio**: la regla vive en su archivo de `rules/` (la furia, en `rabia.ts`).
+2. **Puente**: la hoja YA lo maneja por otro lado y el efecto solo prende ese
+   interruptor. **Alzar el escudo** es el caso — ya tiene su botón y su bonus de
+   circunstancia; sin el puente, prenderlo desde la lista lo contaría dos veces.
+   Hay un test que fija esa decisión.
+
+**Bug encontrado al probarlo**: los personajes guardados antes de que existiera
+el escudo no traen `state.shield`, y el puente reventaba con "Cannot set
+properties of undefined". Blindado en el puente y normalizado en `load()`,
+junto con `state.effects`.
+
+**Próximos candidatos para la tabla** (necesitan confirmación de reglas antes):
+las ~90 `Stance:` del pack, que son mecánica de clase pura y hoy quedan como
+"solo texto".
+
+### 4-duodetricies. Agregar y prender son dos cosas distintas
+
+**La tarjeta de efectos de arriba se fue.** Todo vive en la pestaña.
+
+**La lista es lo que tenés a mano, no lo que está pasando.** Un bárbaro deja la
+furia puesta en su lista y la prende y apaga en cada pelea, sin volver a
+buscarla entre mil efectos. Por eso `state.effects` pasó a
+`{ id, active }`, y el motor solo cuenta los prendidos. `active` ausente
+cuenta como prendido: antes estar en la lista ERA estarlo, así que los
+personajes viejos siguen andando (hay test).
+
+**El nombre es el interruptor**, con el contorno marcado cuando está prendido,
+como el escudo alzado. Apagado, la fila baja de tono pero sigue ahí. `quitar`
+es otra cosa: lo saca de la lista.
+
+**Los HP temporales no se mostraban en ningún lado**, que es por qué la furia
+"no subía la vida": el número se calculaba y no tenía dónde caer. Ahora el
+recuadro de HP tiene su propio campo `+N temp`, editable y aparte del máximo
+—no lo suben, se gastan primero—, y prender la furia lo carga con nivel + Con.
+Apagarla lo pone en cero, que es la regla: al salir se pierden los que queden.
+
+Verificado en vivo con Durin (nivel 1, Con +1): prender → CA 17→16 y **+2 temp**;
+apagar → CA 17, temp 0, **y Rage sigue en la lista**; prender de nuevo → vuelve
+todo; quitar → desaparece de la lista.
+
+### 4-undetricies. HP temporales legibles, y sin tarjeta repetida
+
+**El recuadro de HP se partía**: `9 / 21 + 2 temp` no entraba en una línea, el
+`/ 21` caía abajo y "temp" quedaba cortado. Los temporales pasaron a su propio
+renglón (`temporales 2`), que además los separa visualmente del máximo — que es
+lo correcto, porque no lo suben.
+
+**La tarjeta de Furia se fue.** Repetía lo que ya dice su fila en la pestaña de
+efectos. Sus avisos (no usar `concentrate`, no salir voluntariamente) no se
+perdieron: viven en la ficha del ⓘ.
+
+Para eso, `EFECTOS_A_MANO` ahora lleva sus propios `avisos`, y mandan sobre los
+deducidos de las reglas del pack. Si no, la ficha de Rage decía *"incluye HP
+temporales, que la hoja no calcula"* — justo lo que la tabla existe para
+calcular.
+
+### 4-tricies. Las skills que da la herencia
+
+Skilled Heritage no daba la skill que promete. La causa era el importador: el
+filtro de reglas aceptaba `system.proficiencies.`, `system.saves.` y
+`system.perception`, pero **no `system.skills.`**. Se descartaban **355 reglas**
+en todo el dataset.
+
+El mismo filtro explicaba el otro síntoma: Winter Orc y Battle-Ready Orc, que
+entrenan una skill FIJA (Survival, Intimidation), tampoco la daban. Mismo
+origen, dos formas distintas de manifestarse.
+
+Además, **nadie leía las reglas de la herencia**: `applyRules` corría sobre los
+rasgos de clase y las dotes, y la herencia quedaba afuera.
+
+Tres piezas:
+
+- **Importador**: `system.skills.` entra al filtro. Los paths con plantilla
+  (`skills.{item|flags…rulesSelections.skill}`) se marcan como `elegida`, y los
+  valores que dependen del nivel —el dataset los escribe como
+  `ternary(gte(@actor.level,5),2,1)` o como brackets— se normalizan a una lista
+  `porNivel` ordenada de mayor a menor, para que el motor solo busque el primer
+  tramo que alcanza.
+- **Motor**: aplica `skills.<slug>`, resuelve `skills.{elegida}` contra
+  `build.heritageSkill`, y usa `porNivel` para el salto a experto en nivel 5.
+  Siempre con `upgrade`, así que nunca baja lo que ya tenías.
+- **UI**: el selector aparece en el paso de Herencia del asistente y también en
+  la pestaña de Habilidades, para poder cambiarlo después. Las opciones salen
+  del ChoiceSet del pack, no de una lista escrita a mano: si mañana aparece otra
+  herencia así, funciona sola.
+
+Verificado en vivo: humano + Skilled Heritage → Occultism entrenada **+3** a
+nivel 1, y al poner nivel 5 pasa a experta, **+9**.

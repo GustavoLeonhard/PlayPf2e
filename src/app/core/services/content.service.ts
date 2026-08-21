@@ -13,6 +13,7 @@ import type {
   Pf2Class,
   Spell,
 } from '../models/content.model';
+import type { Effect } from '../rules/efectos';
 import type { ContentIndex } from '../rules/character.engine';
 
 export interface ConditionText {
@@ -58,12 +59,26 @@ export class ContentService {
   spells = () => this.load<Spell>('spells');
   actions = () => this.load<ClassFeature>('actions');
   deities = () => this.load<Deity>('deities');
+  /** Efectos activables: rabia, garbo, heroism… Ver rules/efectos.ts. */
+  effects = () => this.load<Effect>('effects');
   /** Texto oficial de las condiciones (importado de AoN legacy, no del dataset Foundry). */
   conditions = () => this.load<ConditionText>('conditions');
 
   /** Todo lo que el motor de calculo necesita para resolver referencias. */
   async index(): Promise<ContentIndex> {
-    const [classes, ancestries, heritages, backgrounds, features, ancestryFeatures, feats, equipment, actions, deities] =
+    const [
+      classes,
+      ancestries,
+      heritages,
+      backgrounds,
+      features,
+      ancestryFeatures,
+      feats,
+      equipment,
+      actions,
+      deities,
+      effects,
+    ] =
       await Promise.all([
         this.classes(),
         this.ancestries(),
@@ -75,6 +90,7 @@ export class ContentService {
         this.equipment(),
         this.actions(),
         this.deities(),
+        this.effects(),
       ]);
 
     return {
@@ -88,6 +104,7 @@ export class ContentService {
       actionById: new Map(actions.map((a) => [a.id, a])),
       featNames: new Set(feats.map((f) => f.name.toLowerCase())),
       deityById: new Map(deities.map((d) => [d.id, d])),
+      effectById: new Map(effects.map((e) => [e.id, e])),
     };
   }
 }

@@ -31,6 +31,11 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/level-up/level-up.component').then((m) => m.LevelUpComponent),
   },
   {
+    path: 'profile',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/profile/profile.component').then((m) => m.ProfileComponent),
+  },
+  {
     path: 'parties',
     canActivate: [authGuard],
     loadComponent: () => import('./pages/party-list/party-list.component').then((m) => m.PartyListComponent),

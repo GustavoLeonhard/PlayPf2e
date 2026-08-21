@@ -38,6 +38,28 @@
             [selectedId]="build().heritage"
             (selectedIdChange)="setHeritage($event)"
           />
+
+          <!--
+            Algunas herencias prometen una skill (Skilled Heritage, Ancient Ash)
+            y hay que elegirla acá: sin esto la promesa quedaba sin cumplir.
+          -->
+          @if (heritageSkillChoices().length; as n) {
+            <div class="card eleccion-skill">
+              <label>
+                Habilidad de la herencia
+                <select
+                  [value]="build().heritageSkill ?? ''"
+                  (change)="setHeritageSkill($any($event.target).value)"
+                >
+                  <option value="">Elegí una…</option>
+                  @for (op of heritageSkillChoices(); track op.id) {
+                    <option [value]="op.id" [selected]="op.id === build().heritageSkill">{{ op.label }}</option>
+                  }
+                </select>
+              </label>
+              <p class="muted small">Quedás entrenado en esa habilidad, y experto a partir de nivel 5.</p>
+            </div>
+          }
         } @else {
           <p class="muted">Elegí primero una ancestría.</p>
         }

@@ -19,9 +19,19 @@ import { computeCharacter, type ContentIndex } from './character.engine';
 import { buildStat, mod } from './modifiers';
 import { archetypeFeatAvailable } from './archetypes';
 import { CONDITIONS } from './conditions';
+import { avisosDe, esAplicable, selectoresDe, type Effect } from './efectos';
+import { EFECTOS_A_MANO, RAISE_SHIELD_SLUG, seCalcula } from './efectos-a-mano';
 import { COMMON_LANGUAGES, UNCOMMON_LANGUAGES } from './languages';
 import { datosDeConjuro, datosDeEquipo, formatBulk, tiempoDeLanzamiento } from './fichas';
 import { formatCp, priceToCp } from './money';
+import {
+  RUNAS,
+  bonosCondicionalesDeRunas,
+  dadosPorStriking,
+  danoCondicionalDeRunas,
+  danoDeRunas,
+  fichaDeRuna,
+} from './runas';
 import { cantripRank, scaledDamage, spellSlots } from './spellcasting';
 import { evaluatePrerequisite } from './prerequisites';
 import { slotsForLevel } from './progression';
@@ -43,6 +53,7 @@ const actions = load<ClassFeature>('actions');
 const spells = load<Spell>('spells');
 const deities = load<{ id: string; name: string; favoredWeapons: string[] }>('deities');
 const conditionTexts = load<{ id: string; name: string; source: string; text: string }>('conditions');
+const effects = load<Effect>('effects');
 
 const content: ContentIndex = {
   classBySlug: new Map(classes.map((c) => [c.slug, c])),
@@ -55,6 +66,7 @@ const content: ContentIndex = {
   actionById: new Map(actions.map((a) => [a.id, a])),
   featNames: new Set(feats.map((f) => f.name.toLowerCase())),
   deityById: new Map(deities.map((d) => [d.id, d as never])),
+  effectById: new Map(effects.map((e) => [e.id, e])),
 };
 
 const fighter = content.classBySlug.get('fighter')!;
@@ -1500,8 +1512,8 @@ describe('datos técnicos de la ficha (ⓘ)', () => {
     expect(valor(datos, 'Penalidad de chequeos')).toBe('-2');
     expect(valor(datos, 'Penalidad de velocidad')).toBe('-5 pies');
     expect(valor(datos, 'Requisito de Fuerza')).toBe('Fue 2');
-    // El importador trae hardness/maxHp en cero para toda la armadura: no se
-    // muestra un dato que sabemos falso.
+    // El pack de origen trae hardness/maxHp en cero para toda la armadura
+    // (los escudos sí los traen): no se muestra un dato que sabemos falso.
     expect(valor(datos, 'Dureza')).toBeNull();
   });
 
@@ -1548,5 +1560,374 @@ describe('tiempo de lanzamiento', () => {
       const salida = tiempoDeLanzamiento(s.time);
       expect(/^\d+$/.test(salida)).toBe(false);
     }
+  });
+});
+
+describe('runas de arma y armadura', () => {
+  // Verificado contra la fuente Legacy del proyecto (Notebook LM, 2026-08-20).
+
+  it('striking multiplica los dados sin tocar los modificadores planos', () => {
+    // Flame Tongue: +2 greater striking flaming, base 1d8 slashing.
+    const arma = equipment.find((e) => e.slug === 'flame-tongue')!;
+    const build = humanFighter();
+    build.inventory = [{ id: arma.id, quantity: 1, equipped: true }];
+    const sheet = computeCharacter(build, emptyState(), content);
+    const golpe = sheet.strikes.find((s) => s.name === arma.name)!;
+
+    // striking 2 = greater = 3 dados del mismo tamaño.
+    expect(golpe.damageDice).toBe('3d8');
+    // La Fuerza sigue entera: striking no la toca.
+    expect(golpe.damage.total).toBe(sheet.abilityMods.str);
+  });
+
+  it('potency es bonus de objeto al ataque y no suma daño', () => {
+    const arma = equipment.find((e) => e.slug === 'flame-tongue')!;
+    const build = humanFighter();
+    build.inventory = [{ id: arma.id, quantity: 1, equipped: true }];
+    const sheet = computeCharacter(build, emptyState(), content);
+    const golpe = sheet.strikes.find((s) => s.name === arma.name)!;
+
+    const potencia = golpe.attack.breakdown.find((m) => m.type === 'item')!;
+    expect(potencia.value).toBe(2);
+    expect(golpe.damage.breakdown.some((m) => m.type === 'item')).toBe(false);
+  });
+
+  it('el daño de una runa elemental va aparte, no sumado al dado del arma', () => {
+    const arma = equipment.find((e) => e.slug === 'flame-tongue')!;
+    const build = humanFighter();
+    build.inventory = [{ id: arma.id, quantity: 1, equipped: true }];
+    const sheet = computeCharacter(build, emptyState(), content);
+    const golpe = sheet.strikes.find((s) => s.name === arma.name)!;
+
+    expect(golpe.extraDamage).toContainEqual({ formula: '1d6', type: 'fire', source: 'Flaming' });
+    // No se coló en el dado principal ni en el modificador.
+    expect(golpe.damageDice).toBe('3d8');
+  });
+
+  it('armor potency sube el bonus de objeto a la CA, y resilient las salvaciones', () => {
+    // Ancestral Embrace: +4 resilient (mayor), armadura ligera con acBonus 1.
+    const armadura = equipment.find((e) => e.slug === 'ancestral-embrace')!;
+    const build = humanFighter();
+    build.inventory = [{ id: armadura.id, quantity: 1, equipped: true }];
+    const sheet = computeCharacter(build, emptyState(), content);
+
+    const objetoCa = sheet.ac.breakdown.find((m) => m.type === 'item')!;
+    expect(objetoCa.value).toBe(armadura.acBonus! + 4);
+
+    for (const save of ['fortitude', 'reflex', 'will'] as const) {
+      const objeto = sheet.saves[save].breakdown.find((m) => m.type === 'item')!;
+      expect(objeto.value).toBe(3);
+    }
+  });
+
+  it('un arma sin runas no cambia respecto de antes', () => {
+    const espada = equipment.find((e) => e.slug === 'longsword')!;
+    const build = humanFighter();
+    build.inventory = [{ id: espada.id, quantity: 1, equipped: true }];
+    const sheet = computeCharacter(build, emptyState(), content);
+    const golpe = sheet.strikes.find((s) => s.name === espada.name)!;
+
+    expect(golpe.damageDice).toBe('1d8');
+    expect(golpe.extraDamage).toEqual([]);
+    expect(golpe.attack.breakdown.some((m) => m.type === 'item')).toBe(false);
+  });
+
+  it('dadosPorStriking sigue la tabla: sin runa 1, striking 2, greater 3, major 4', () => {
+    expect([0, 1, 2, 3].map(dadosPorStriking)).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe('tabla de runas de propiedad', () => {
+  const enElPack = [...new Set(equipment.flatMap((e) => e.runes?.property ?? []))].sort();
+
+  it('tiene ficha para TODAS las runas que trae el pack', () => {
+    const sinFicha = enElPack.filter((r) => !RUNAS[r]);
+    expect(sinFicha).toEqual([]);
+    expect(enElPack.length).toBeGreaterThan(40);
+  });
+
+  it('ninguna ficha se quedó sin resumen', () => {
+    for (const [clave, datos] of Object.entries(RUNAS)) {
+      expect(datos.nombre, clave).toBeTruthy();
+      expect(datos.resumen.length, clave).toBeGreaterThan(10);
+    }
+  });
+
+  it('separa el daño incondicional del que depende del objetivo', () => {
+    // Brilliant: 1d4 de fuego siempre, y 1d4 más solo contra diablos y no-muertos.
+    expect(danoDeRunas(['brilliant'])).toEqual([{ formula: '1d4', type: 'fire', source: 'Brilliant' }]);
+    expect(danoCondicionalDeRunas(['brilliant']).map((d) => d.contra)).toEqual(['diablos', 'no-muertos']);
+
+    // Disrupting no suma nada contra un objetivo cualquiera.
+    expect(danoDeRunas(['disrupting'])).toEqual([]);
+    expect(danoCondicionalDeRunas(['disrupting'])).toHaveLength(1);
+  });
+
+  it('no aplica los bonus que dependen de la situación, los muestra', () => {
+    const bonos = bonosCondicionalesDeRunas(['greaterSlick', 'antimagic']);
+    expect(bonos.map((b) => b.source)).toEqual(['Greater Slick', 'Antimagic']);
+    // El de Slick es solo para Escapar y Colarse: sumarlo a Acrobatics entero
+    // inflaría todas las demás tiradas de la habilidad.
+    expect(bonos[0].texto).toContain('Escapar');
+  });
+
+  it('una runa desconocida no rompe: devuelve una ficha mínima', () => {
+    expect(fichaDeRuna('runaInventada').nombre).toBe('Runa Inventada');
+    expect(danoDeRunas(['runaInventada'])).toEqual([]);
+  });
+});
+
+describe('efectos activos', () => {
+  const efecto = (slug: string) => effects.find((e) => e.slug === slug)!;
+
+  const conEfectos = (...slugs: string[]) => {
+    const state = emptyState();
+    state.effects = slugs.map((s) => ({ id: efecto(s).id }));
+    return state;
+  };
+
+  it('un efecto del pack mueve el número, sin escribir la regla a mano', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+    // Longstrider: +10 de estado a la velocidad, tal cual viene en el pack.
+    const conjurado = computeCharacter(humanFighter(), conEfectos('spell-effect-tailwind'), content);
+
+    expect(conjurado.speed.total).toBe(base.speed.total + 10);
+    expect(conjurado.speed.breakdown.some((m) => m.source === 'Longstrider')).toBe(true);
+  });
+
+  it('respeta el stacking: dos bonus de estado a velocidad no se suman', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+    const dos = computeCharacter(humanFighter(), conEfectos('spell-effect-tailwind', 'effect-fleet-tempo'), content);
+
+    // +10 y +10, los dos de estado: se aplica el mayor, no +20.
+    expect(dos.speed.total).toBe(base.speed.total + 10);
+    expect(dos.speed.suppressed).toHaveLength(1);
+  });
+
+  it('NO aplica un bonus con predicado: el +1 del garbo es solo para Tumble Through', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+    const conGarbo = computeCharacter(humanFighter(), conEfectos('effect-panache'), content);
+
+    const acro = (s: typeof base) => s.skills.find((x) => x.slug === 'acrobatics')!.stat.total;
+    expect(acro(conGarbo)).toBe(acro(base));
+    // Pero el +5 a la velocidad, que no tiene predicado, sí entra.
+    expect(conGarbo.speed.total).toBe(base.speed.total + 5);
+  });
+
+  it('NO aplica un valor por tabla: el de Heroism depende del rango del conjuro', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+    const heroico = computeCharacter(humanFighter(), conEfectos('spell-effect-heroism'), content);
+
+    expect(heroico.perception.total).toBe(base.perception.total);
+    // …y lo avisa en vez de callarse.
+    expect(avisosDe(efecto('spell-effect-heroism'))).toContain('tiene un bonus que varía según el nivel');
+  });
+
+  it('avisa de lo que el efecto hace y la hoja no calcula', () => {
+    // Rage: los HP temporales salen de una fórmula que el motor no evalúa.
+    expect(avisosDe(efecto('effect-rage'))).toContain('incluye HP temporales, que la hoja no calcula');
+  });
+
+  it('un efecto cuyas reglas no sabemos aplicar no cambia nada', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+    // Heroism: su único modificador es una tabla por rango, no un número.
+    const heroico = computeCharacter(humanFighter(), conEfectos('spell-effect-heroism'), content);
+
+    expect(heroico.ac.total).toBe(base.ac.total);
+    expect(heroico.speed.total).toBe(base.speed.total);
+  });
+
+  it('el vocabulario de selectores cubre la mayoría de lo que trae el pack', () => {
+    const conFlat = effects.flatMap((e) => e.rules).filter((r) => r.key === 'FlatModifier');
+    const entendidos = conFlat.filter((r) => selectoresDe(r).length > 0);
+    // Si un cambio de vocabulario deja de entender selectores, esto lo agarra.
+    expect(entendidos.length / conFlat.length).toBeGreaterThan(0.75);
+  });
+});
+
+describe('furia del bárbaro', () => {
+  // Reglas confirmadas con la fuente Legacy del proyecto (Notebook LM, 2026-08-21).
+  const rageId = effects.find((e) => e.slug === 'effect-rage')!.id;
+
+  const furioso = () => {
+    const state = emptyState();
+    state.effects = [{ id: rageId }];
+    return state;
+  };
+
+  const conEspada = (slug: string) => {
+    const arma = equipment.find((e) => e.slug === slug)!;
+    const build = humanFighter();
+    build.inventory = [{ id: arma.id, quantity: 1, equipped: true }];
+    return { build, arma };
+  };
+
+  it('+2 al daño cuerpo a cuerpo, fijo', () => {
+    const { build, arma } = conEspada('longsword');
+    const calmo = computeCharacter(build, emptyState(), content);
+    const rabioso = computeCharacter(build, furioso(), content);
+
+    const dmg = (s: typeof calmo) => s.strikes.find((x) => x.name === arma.name)!.damage.total;
+    expect(dmg(rabioso)).toBe(dmg(calmo) + 2);
+  });
+
+  it('la mitad si el arma es agile', () => {
+    // La daga es agile: +1 en vez de +2.
+    const { build, arma } = conEspada('dagger');
+    expect(arma.traits).toContain('agile');
+
+    const calmo = computeCharacter(build, emptyState(), content);
+    const rabioso = computeCharacter(build, furioso(), content);
+
+    const dmg = (s: typeof calmo) => s.strikes.find((x) => x.name === arma.name)!.damage.total;
+    expect(dmg(rabioso)).toBe(dmg(calmo) + 1);
+  });
+
+  it('no suma nada a distancia', () => {
+    const { build, arma } = conEspada('shortbow');
+    const calmo = computeCharacter(build, emptyState(), content);
+    const rabioso = computeCharacter(build, furioso(), content);
+
+    const dmg = (s: typeof calmo) => s.strikes.find((x) => x.name === arma.name)!.damage.total;
+    expect(dmg(rabioso)).toBe(dmg(calmo));
+  });
+
+  it('−1 a la CA, SIN TIPO: acumula con todo en vez de competir', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+    const rabioso = computeCharacter(humanFighter(), furioso(), content);
+
+    expect(rabioso.ac.total).toBe(base.ac.total - 1);
+    const penalidad = rabioso.ac.breakdown.find((m) => m.source === 'Rabia')!;
+    expect(penalidad.type).toBe('untyped');
+    // Sin tipo = nunca se descarta por stacking.
+    expect(rabioso.ac.suppressed.some((m) => m.source === 'Rabia')).toBe(false);
+  });
+
+  it('HP temporales = nivel + Constitución, y no escalan solos', () => {
+    const rabioso = computeCharacter(humanFighter(), furioso(), content);
+    expect(rabioso.rage!.tempHp).toBe(rabioso.level + rabioso.abilityMods.con);
+
+    // El +2 al daño NO sube con el nivel: es fijo toda la carrera.
+    const alto = humanFighter(12);
+    expect(computeCharacter(alto, furioso(), content).rage!.damageBonus).toBe(2);
+  });
+
+  it('sin el efecto prendido, la furia no existe', () => {
+    expect(computeCharacter(humanFighter(), emptyState(), content).rage).toBeNull();
+  });
+
+  it('avisa de lo que no puede impedir por vos', () => {
+    const rabioso = computeCharacter(humanFighter(), furioso(), content);
+    expect(rabioso.rage!.avisos.some((a) => a.includes('concentrate'))).toBe(true);
+  });
+});
+
+describe('efectos escritos a mano', () => {
+  it('cada entrada de la tabla apunta a un efecto que existe en el pack', () => {
+    for (const slug of Object.keys(EFECTOS_A_MANO)) {
+      expect(effects.some((e) => e.slug === slug), slug).toBe(true);
+    }
+  });
+
+  it('los que la tabla cubre dejan de contar como "solo texto"', () => {
+    for (const slug of Object.keys(EFECTOS_A_MANO)) {
+      const efecto = effects.find((e) => e.slug === slug)!;
+      // El pack los trae vacíos: es justamente por eso que están en la tabla.
+      expect(efecto.rules.some(esAplicable), slug).toBe(false);
+      expect(seCalcula(slug, false), slug).toBe(true);
+    }
+  });
+
+  it('alzar el escudo es un puente, no un modificador propio', () => {
+    // Si sumara su propio bonus además de prender el escudo, la CA subiría dos veces.
+    expect(EFECTOS_A_MANO[RAISE_SHIELD_SLUG].puente).toBe('shield');
+
+    const escudo = equipment.find((e) => e.slug === 'steel-shield')!;
+    const build = humanFighter();
+    build.inventory = [{ id: escudo.id, quantity: 1, equipped: true }];
+
+    const state = emptyState();
+    state.effects = [{ id: effects.find((e) => e.slug === RAISE_SHIELD_SLUG)!.id }];
+    // El puente lo prende la hoja; el motor solo mira `shield.raised`.
+    state.shield = { raised: true, hp: 20 };
+
+    const base = computeCharacter(build, emptyState(), content);
+    const alzado = computeCharacter(build, state, content);
+    expect(alzado.ac.total).toBe(base.ac.total + escudo.acBonus!);
+  });
+});
+
+describe('la lista de efectos no es lo que está pasando', () => {
+  const longstrider = () => effects.find((e) => e.slug === 'spell-effect-tailwind')!.id;
+
+  it('un efecto en la lista pero apagado no mueve nada', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+
+    const guardado = emptyState();
+    guardado.effects = [{ id: longstrider(), active: false }];
+    const conLista = computeCharacter(humanFighter(), guardado, content);
+
+    expect(conLista.speed.total).toBe(base.speed.total);
+  });
+
+  it('prenderlo lo hace contar, sin sacarlo ni volver a agregarlo', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+
+    const prendido = emptyState();
+    prendido.effects = [{ id: longstrider(), active: true }];
+    expect(computeCharacter(humanFighter(), prendido, content).speed.total).toBe(base.speed.total + 10);
+  });
+
+  it('sin el flag cuenta como prendido: antes estar en la lista era estarlo', () => {
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+
+    const viejo = emptyState();
+    viejo.effects = [{ id: longstrider() }];
+    expect(computeCharacter(humanFighter(), viejo, content).speed.total).toBe(base.speed.total + 10);
+  });
+});
+
+describe('skills que da la herencia', () => {
+  const humanoCon = (heritageName: string, skill?: string) => {
+    const build = humanFighter();
+    build.heritage = heritages.find((h) => h.name === heritageName)!.id;
+    if (skill) build.heritageSkill = skill;
+    return build;
+  };
+
+  it('Skilled Heritage entrena la skill elegida', () => {
+    const sheet = computeCharacter(humanoCon('Skilled Heritage', 'occultism'), emptyState(), content);
+    expect(sheet.skills.find((s) => s.slug === 'occultism')!.rank).toBe(1);
+  });
+
+  it('…y la sube a experto en nivel 5, que es la mitad de la promesa', () => {
+    const build = humanoCon('Skilled Heritage', 'occultism');
+    build.level = 4;
+    expect(computeCharacter(build, emptyState(), content).skills.find((s) => s.slug === 'occultism')!.rank).toBe(1);
+
+    build.level = 5;
+    expect(computeCharacter(build, emptyState(), content).skills.find((s) => s.slug === 'occultism')!.rank).toBe(2);
+  });
+
+  it('sin elegir la skill no rompe ni entrena nada de más', () => {
+    const sheet = computeCharacter(humanoCon('Skilled Heritage'), emptyState(), content);
+    const base = computeCharacter(humanFighter(), emptyState(), content);
+    expect(sheet.skills.filter((s) => s.rank > 0).length).toBe(base.skills.filter((s) => s.rank > 0).length);
+  });
+
+  it('una herencia con skill FIJA no necesita elección: Winter Orc entrena Survival', () => {
+    const build = humanFighter();
+    build.heritage = heritages.find((h) => h.name === 'Winter Orc')!.id;
+    expect(computeCharacter(build, emptyState(), content).skills.find((s) => s.slug === 'survival')!.rank).toBe(1);
+  });
+
+  it('la herencia nunca baja lo que ya tenías: solo sube', () => {
+    // Athletics ya viene entrenada por clase/trasfondo en este build.
+    const build = humanoCon('Skilled Heritage', 'athletics');
+    build.level = 1;
+    expect(computeCharacter(build, emptyState(), content).skills.find((s) => s.slug === 'athletics')!.rank).toBe(1);
+
+    build.level = 5;
+    expect(computeCharacter(build, emptyState(), content).skills.find((s) => s.slug === 'athletics')!.rank).toBe(2);
   });
 });

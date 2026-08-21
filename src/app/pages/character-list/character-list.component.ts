@@ -49,8 +49,11 @@ import { PartyService } from '../../core/services/party.service';
                 }
               </a>
 
+              <!--
+                Subir de nivel se hace desde la hoja, donde se ve contra qué se
+                está subiendo. Acá era un atajo que invitaba a subir a ciegas.
+              -->
               <div class="actions">
-                <a class="btn" [routerLink]="['/characters', pj.id, 'level-up']">Subir nivel</a>
                 <button class="btn danger ghost" (click)="confirmDelete(pj)">Borrar</button>
               </div>
             </div>

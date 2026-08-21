@@ -17,13 +17,19 @@ import { archetypeFeatAvailable, isArchetypeFeat, ownedDedications } from '../..
 import { CONDITION_BY_ID } from '../../core/rules/conditions';
 import { criticalTotal, rollFormula, type DiceRoll } from '../../core/rules/dice';
 import { COMMON_LANGUAGES, UNCOMMON_LANGUAGES, languageLabel } from '../../core/rules/languages';
-import { datosDeConjuro, datosDeDote, datosDeEquipo, type Dato } from '../../core/rules/fichas';
+import { datosDeConjuro, datosDeDote, datosDeEfecto, datosDeEquipo, type Dato } from '../../core/rules/fichas';
+import { recorteCuadrado } from '../../core/rules/imagen';
 import { formatCp, priceToCp, splitCp } from '../../core/rules/money';
 import { castableRanks, scaledDamage } from '../../core/rules/spellcasting';
+import { SKILLS } from '../../core/rules/tables';
 import { computeCharacter, type ContentIndex, type FeatSource, type StrikeSheet } from '../../core/rules/character.engine';
+import { avisosDe, esAplicable, nombreCorto, selectoresDe, valorDe, type Effect } from '../../core/rules/efectos';
+import { efectoAMano, seCalcula } from '../../core/rules/efectos-a-mano';
+import { RAGE_SLUG, rageSheet } from '../../core/rules/rabia';
 import { signed, type Stat } from '../../core/rules/modifiers';
 import { CharacterService } from '../../core/services/character.service';
 import { AccordionComponent } from '../../shared/accordion.component';
+import { AccordionStateService } from '../../shared/accordion-state.service';
 import { RankSelectComponent } from '../../shared/rank-select.component';
 import { ContentService, type ConditionText } from '../../core/services/content.service';
 
@@ -74,6 +80,7 @@ type GrupoProf = 'skills' | 'strikes' | 'defenses';
 })
 export class SheetComponent implements OnInit {
   private content = inject(ContentService);
+  private accordionState = inject(AccordionStateService);
   private characters = inject(CharacterService);
 
   /** Viene del router (withComponentInputBinding). */
@@ -143,9 +150,14 @@ export class SheetComponent implements OnInit {
   }
 
   private async load() {
+    // Antes de pintar nada: así los acordeones nacen con el plegado guardado
+    // de ESTE personaje, en vez de abrirse y cerrarse a la vista.
+    this.accordionState.usar(this.id());
+
     const [index] = await Promise.all([this.content.index()]);
     void this.content.spells().then((s) => this.spellList.set(s));
     void this.content.conditions().then((c) => this.conditionList.set(c));
+    void this.content.effects().then((e) => this.effectList.set(e));
     this.index.set(index);
     const record = await this.characters.get(this.id());
     if (record) {
@@ -155,6 +167,8 @@ export class SheetComponent implements OnInit {
       record.state.preparedSpells ??= {};
       record.state.coins ??= 0;
       record.state.spellSlotsUsed ??= {};
+      record.state.shield ??= { raised: false, hp: 0 };
+      record.state.effects ??= [];
       record.build.languages ??= [];
       record.build.favorites ??= [];
       record.build.inventory ??= [];
@@ -434,6 +448,33 @@ export class SheetComponent implements OnInit {
   esAbilityManual = (ability: Ability): boolean =>
     this.record()?.build.abilityOverrides?.[ability] !== undefined;
 
+  // ------------------------------------------------- skill de la herencia
+
+  /**
+   * Las opciones que ofrece la herencia, si ofrece alguna.
+   *
+   * Sale de la regla del pack (`skills.{elegida}`), no de una lista escrita a
+   * mano: hoy son Skilled Heritage y Ancient Ash.
+   */
+  readonly heritageSkillChoices = computed<{ id: string; label: string }[]>(() => {
+    const id = this.record()?.build.heritage;
+    const heritage = id ? this.index()?.heritageById.get(id) : null;
+    if (!heritage?.rules.some((r) => r.key === 'Proficiency' && r.elegida)) return [];
+
+    const choiceSet = heritage.rules.find((r) => r.key === 'ChoiceSet');
+    return (choiceSet?.choices ?? []).map((c) => ({
+      id: c.id,
+      label: SKILLS.find((s) => s.slug === c.id)?.name ?? c.id,
+    }));
+  });
+
+  async setHeritageSkill(slug: string) {
+    const record = this.record();
+    if (!record) return;
+    record.build.heritageSkill = slug || null;
+    await this.guardar(record);
+  }
+
   // ----------------------------------------------------------- proficiencias
 
   /**
@@ -625,39 +666,13 @@ export class SheetComponent implements OnInit {
 
   // ---------------------------------------------------------------- retrato
 
-  /**
-   * El retrato viaja dentro del mismo jsonb que el resto del personaje, asi que se
-   * achica a 256px antes de guardarlo: una foto de camara entera no entra.
-   */
+  /** El retrato viaja dentro del jsonb del personaje: se achica antes de guardar. */
   async setPortrait(input: HTMLInputElement) {
     const file = input.files?.[0];
     const record = this.record();
     if (!file || !record) return;
 
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-
-    const img = new Image();
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = reject;
-      img.src = dataUrl;
-    });
-
-    const lado = 256;
-    const canvas = document.createElement('canvas');
-    canvas.width = lado;
-    canvas.height = lado;
-    const ctx = canvas.getContext('2d')!;
-    // Recorte cuadrado centrado: la ficha muestra un retrato, no la foto entera.
-    const corte = Math.min(img.width, img.height);
-    ctx.drawImage(img, (img.width - corte) / 2, (img.height - corte) / 2, corte, corte, 0, 0, lado, lado);
-
-    record.build.portrait = canvas.toDataURL('image/jpeg', 0.8);
+    record.build.portrait = await recorteCuadrado(file);
     input.value = '';
     await this.guardar(record);
   }
@@ -1130,6 +1145,11 @@ export class SheetComponent implements OnInit {
       guardar(`conjuro:${spell.id}`, spell.name, spell.description, datosDeConjuro(spell));
     }
     for (const c of this.conditionList()) guardar(`condicion:${c.id}`, c.name, c.text);
+    // Solo los que se pueden ver: son 1418 y armar la ficha de todos por render
+    // costaría más que resolverlas de a una.
+    for (const e of [...this.effectsActivos(), ...this.effectResults()]) {
+      guardar(`efecto:${e.id}`, nombreCorto(e), e.description, datosDeEfecto(e));
+    }
 
     return salida;
   });
@@ -1644,6 +1664,17 @@ export class SheetComponent implements OnInit {
     await this.characters.save(record);
   }
 
+  /** HP temporales. Van aparte: no suben el máximo y se gastan primero. */
+  async setTempHp(valor: string) {
+    const record = this.record();
+    if (!record) return;
+    const numero = Number(valor);
+    if (Number.isNaN(numero)) return;
+    record.state.hp.temp = Math.max(0, Math.round(numero));
+    this.record.set({ ...record });
+    await this.characters.save(record);
+  }
+
   async adjustHp(delta: number) {
     const record = this.record();
     const sheet = this.sheet();
@@ -1693,6 +1724,126 @@ export class SheetComponent implements OnInit {
   }
 
   /** ¿Esta condición tiene efecto numérico en la hoja, o es solo texto? */
+  // ------------------------------------------------------- efectos activos
+
+  /**
+   * Rabia, garbo, heroism… lo que se prende un rato. Son 1418 en el pack, así
+   * que hay buscador: mostrarlos todos como las 42 condiciones no serviría.
+   */
+  readonly effectList = signal<Effect[]>([]);
+  readonly effectQuery = signal('');
+
+  /** Lo que tenés a mano, prendido o no. */
+  readonly effectsEnLista = computed(() => {
+    const porId = new Map(this.effectList().map((e) => [e.id, e]));
+    return (this.record()?.state.effects ?? [])
+      .map((e) => ({ efecto: porId.get(e.id), activo: e.active !== false }))
+      .filter((x): x is { efecto: Effect; activo: boolean } => !!x.efecto);
+  });
+
+  /** Solo lo que está pasando ahora. */
+  readonly effectsActivos = computed(() => this.effectsEnLista().filter((x) => x.activo).map((x) => x.efecto));
+
+  enLista = (id: string) => !!this.record()?.state.effects?.some((e) => e.id === id);
+  estaActivo = (id: string) => !!this.record()?.state.effects?.some((e) => e.id === id && e.active !== false);
+
+  /** El buscador: hace falta escribir algo, si no serían 1418 filas. */
+  readonly effectResults = computed(() => {
+    const q = this.effectQuery().trim().toLowerCase();
+    if (q.length < 2) return [];
+    return this.effectList()
+      .filter((e) => nombreCorto(e).toLowerCase().includes(q))
+      .slice(0, 40);
+  });
+
+  nombreCorto = nombreCorto;
+  avisosDe = avisosDe;
+
+  /** Si mueve algún número de la hoja, o es solo un recordatorio. */
+  efectoCalcula = (e: Effect) => seCalcula(e.slug, e.rules.some(esAplicable));
+
+  /**
+   * Qué hace, en un renglón. Sale de las reglas del pack cuando las trae, y de
+   * la tabla escrita a mano cuando el pack lo dejó vacío (la furia, el escudo).
+   */
+  queHace(e: Effect): string {
+    const aMano = efectoAMano(e.slug);
+    if (aMano) return aMano.resumen;
+
+
+    const mueve = e.rules
+      .filter(esAplicable)
+      .map((r) => `${valorDe(r)! >= 0 ? '+' : ''}${valorDe(r)} a ${selectoresDe(r).join(', ')}`);
+    if (mueve.length) return mueve.join(' · ');
+
+    return avisosDe(e)[0] ?? '';
+  }
+
+  readonly efectosSubtitulo = computed(() => {
+    const n = this.effectsActivos().length;
+    return n ? `${n} activo${n === 1 ? '' : 's'}` : '';
+  });
+
+
+
+  /** Sumar el efecto a la lista, ya prendido: lo agregás porque está pasando. */
+  async addEffect(id: string) {
+    const record = this.record();
+    if (!record || this.enLista(id)) return;
+
+    record.state.effects = [...(record.state.effects ?? []), { id, active: true }];
+    await this.aplicarEfecto(record, id, true);
+  }
+
+  /** Sacarlo de la lista. Si estaba prendido, se apaga primero. */
+  async removeEffect(id: string) {
+    const record = this.record();
+    if (!record) return;
+
+    record.state.effects = (record.state.effects ?? []).filter((e) => e.id !== id);
+    await this.aplicarEfecto(record, id, false);
+  }
+
+  /** Prender o apagar sin sacarlo de la lista: es lo que se hace en cada pelea. */
+  async toggleEffect(id: string) {
+    const record = this.record();
+    if (!record) return;
+
+    const prendiendo = !this.estaActivo(id);
+    record.state.effects = (record.state.effects ?? []).map((e) =>
+      e.id === id ? { ...e, active: prendiendo } : e,
+    );
+    await this.aplicarEfecto(record, id, prendiendo);
+  }
+
+  /**
+   * Lo que un efecto arrastra además de sus modificadores.
+   *
+   * Son dos casos: los que la hoja ya maneja por otro lado (el escudo alzado
+   * tiene su propio interruptor, y sin esto se contaría dos veces) y los que
+   * escriben en el estado (la furia da HP temporales, y al salir se pierden
+   * los que queden).
+   */
+  private async aplicarEfecto(record: CharacterRecord, id: string, prendido: boolean) {
+    const slug = this.effectList().find((e) => e.id === id)?.slug ?? '';
+
+    if (efectoAMano(slug)?.puente === 'shield') {
+      // Los PJ guardados antes de que existiera el escudo no traen ese estado.
+      record.state.shield = { ...(record.state.shield ?? { hp: 0 }), raised: prendido };
+    }
+
+    if (slug === RAGE_SLUG) {
+      const furia = this.sheet()?.rage;
+      record.state.hp.temp = prendido ? (furia?.tempHp ?? rageSheet(this.nivel(), this.conMod()).tempHp) : 0;
+    }
+
+    this.record.set({ ...record });
+    await this.characters.save(record);
+  }
+
+  private nivel = () => this.sheet()?.level ?? 1;
+  private conMod = () => this.sheet()?.abilityMods.con ?? 0;
+
   hasEffect = (id: string) => (CONDITION_BY_ID.get(id)?.selectors.length ?? 0) > 0;
   isValued = (id: string) => CONDITION_BY_ID.get(id)?.valued ?? false;
 

@@ -110,6 +110,21 @@
           />
           <span class="muted">/ {{ s.maxHp.total }}</span>
         </span>
+        <!--
+          Los temporales van en su propio renglón y aparte del total: no suben
+          el máximo, se gastan primero y se pierden cuando se acaba lo que los
+          dio. En la misma línea el "/ 21" se partía y quedaba ilegible.
+        -->
+        <label class="hp-temp" title="Puntos de vida temporales">
+          <span class="muted">temporales</span>
+          <input
+            class="hp-input temp"
+            type="number"
+            min="0"
+            [value]="record()?.state?.hp?.temp ?? 0"
+            (change)="setTempHp($any($event.target).value)"
+          />
+        </label>
       </div>
 
       <div class="card mini">
@@ -418,6 +433,71 @@
         </div>
       </app-accordion>
 
+      <app-accordion titulo="Efectos" [subtitulo]="efectosSubtitulo()" class="efectos-tab">
+        <div class="efectos-lista">
+          @for (x of effectsEnLista(); track x.efecto.id) {
+            <div class="efecto-fila" [class.on]="x.activo">
+              <!--
+                El nombre ES el interruptor, como el escudo alzado: prendido va
+                con el contorno marcado. Quitar es otra cosa: lo saca de la
+                lista, para cuando ya no lo vas a usar más en esta aventura.
+              -->
+              <button
+                class="efecto-nombre"
+                [attr.aria-pressed]="x.activo"
+                [title]="x.activo ? 'Apagar' : 'Prender'"
+                (click)="toggleEffect(x.efecto.id)"
+              >
+                {{ nombreCorto(x.efecto) }}
+              </button>
+              <button class="info" title="Ver la descripción" (click)="verFicha('efecto:' + x.efecto.id)">ⓘ</button>
+              <span class="efecto-que">{{ queHace(x.efecto) }}</span>
+              <button class="btn ghost quitar" title="Sacar de la lista" (click)="removeEffect(x.efecto.id)">
+                quitar
+              </button>
+            </div>
+          }
+
+          @if (!effectsEnLista().length) {
+            <p class="muted small">Nada en la lista. Buscá abajo lo que uses seguido.</p>
+          }
+
+          <div class="agregar-efecto">
+            <input
+              class="buscador"
+              type="search"
+              placeholder="Buscar un efecto (rage, longstrider, haste…)"
+              [value]="effectQuery()"
+              (input)="effectQuery.set($any($event.target).value)"
+            />
+
+            @for (e of effectResults(); track e.id) {
+              @if (!enLista(e.id)) {
+                <div class="efecto-fila">
+                  <span class="efecto-nombre">{{ nombreCorto(e) }}</span>
+                  <button class="info" title="Ver la descripción" (click)="verFicha('efecto:' + e.id)">ⓘ</button>
+                  <span class="efecto-que">
+                    {{ queHace(e) }}
+                    @if (!efectoCalcula(e)) {
+                      <span class="tag no-effect" title="La hoja no cambia ningún número por este efecto">
+                        solo texto
+                      </span>
+                    }
+                  </span>
+                  <button class="btn ghost quitar" (click)="addEffect(e.id)">agregar</button>
+                </div>
+              }
+            }
+
+            @if (effectQuery().trim().length < 2) {
+              <p class="muted small">Escribí al menos dos letras: el pack trae más de mil efectos.</p>
+            } @else if (!effectResults().length) {
+              <p class="muted small">Ninguno se llama así.</p>
+            }
+          </div>
+        </div>
+      </app-accordion>
+
       <app-accordion titulo="Atributos">
         <div class="fila tiradas">
       @for (ab of abilityList; track ab) {
@@ -464,6 +544,26 @@
       </app-accordion>
 
       <app-accordion titulo="Habilidades">
+        <!--
+          La skill que promete la herencia se elige al crear el PJ, pero también
+          hay que poder cambiarla acá: es una decisión más, como el resto.
+        -->
+        @if (heritageSkillChoices().length) {
+          <label class="eleccion-skill">
+            Habilidad de la herencia
+            <select
+              [value]="record()?.build?.heritageSkill ?? ''"
+              (change)="setHeritageSkill($any($event.target).value)"
+            >
+              <option value="">Elegí una…</option>
+              @for (op of heritageSkillChoices(); track op.id) {
+                <option [value]="op.id" [selected]="op.id === record()?.build?.heritageSkill">{{ op.label }}</option>
+              }
+            </select>
+            <small class="muted">Entrenado, y experto a partir de nivel 5.</small>
+          </label>
+        }
+
         <div class="rejilla angosta">
         @for (sk of s.skills; track sk.slug) {
           <div class="skill-row" [class.untrained]="sk.rank === 0">
@@ -525,7 +625,7 @@
         </div>
       </app-accordion>
 
-      <app-accordion titulo="Rasgos y dotes" [inicial]="false">
+      <app-accordion titulo="Rasgos y dotes">
         <div class="rejilla">
         @for (grupo of featGroups(); track grupo.key) {
           <div class="feat-group">
@@ -673,7 +773,7 @@
         en el personaje y el motor lo aplica a la CA, a la penalidad de chequeos
         y a la velocidad.
       -->
-      <app-accordion titulo="Armadura y escudo" [inicial]="false">
+      <app-accordion titulo="Armadura y escudo">
         @if (s.armor; as armadura) {
           <div class="defensa">
             <span class="nombre">
@@ -1269,7 +1369,6 @@
           ' bulk' +
           (s.bulk.ignorado ? ' — sin contar' : s.bulk.encumbered ? ' — encumbered' : '')
         "
-        [inicial]="false"
       >
         <!-- Muchas mesas no llevan la cuenta del peso: con esto deja de avisar. -->
         <label acc-extra class="ignorar-bulk" title="Dejá de avisar por la carga">
@@ -1400,7 +1499,7 @@
       </app-accordion>
 
       @if (s.appearance || s.age || record()?.build?.notes) {
-        <app-accordion titulo="Detalles" [inicial]="false">
+        <app-accordion titulo="Detalles">
         @if (s.appearance || s.age || record()?.build?.notes) {
           <div class="detalles-pj">
             @if (s.age) {
@@ -1497,6 +1596,25 @@
       </span>
       <span class="muted dmg">
         {{ st.damageDice }}{{ st.damage.total !== 0 ? signed(st.damage.total) : '' }} {{ st.damageType }}
+        <!--
+          El daño de runa va aparte y no sumado: el enemigo puede resistir un
+          tipo y no el otro, y este dado no se duplica en un crítico.
+        -->
+        @for (extra of st.extraDamage; track extra.source) {
+          <em class="runa-dmg" [title]="extra.source">+ {{ extra.formula }} {{ extra.type }}</em>
+        }
+        <!--
+          Lo condicional se muestra apagado: es un recordatorio de qué tirar de
+          más si el objetivo califica, no parte del daño del golpe.
+        -->
+        @for (extra of st.conditionalDamage; track extra.source + extra.type) {
+          <em class="runa-cond" [title]="extra.source">
+            (+{{ extra.formula }} {{ extra.type }} vs {{ extra.contra }})
+          </em>
+        }
+        @for (nota of st.runeNotes; track nota.source) {
+          <em class="runa-cond" [title]="nota.source">({{ nota.texto }})</em>
+        }
         @if (st.fatal) {
           <em class="crit-trait" title="En un crítico los dados pasan a este tamaño y se suma uno extra">
             · fatal {{ st.fatal }}

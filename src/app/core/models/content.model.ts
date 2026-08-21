@@ -1,3 +1,4 @@
+import type { Runes } from '../rules/runas';
 import type { Price } from '../rules/money';
 
 /** Formas del contenido importado desde el dataset PF2e Legacy (ver tools/import). */
@@ -49,6 +50,13 @@ export interface RuleElement {
   predicate?: string[];
   /** Proficiency: path tipo `proficiencies.attacks.simple-firearms-crossbows`. */
   path?: string;
+  /**
+   * Rango que sube con el nivel, de mayor a menor: la Skilled Heritage entrena
+   * a nivel 1 y sube a experto a nivel 5. Se usa el primer tramo que alcanzás.
+   */
+  porNivel?: { desde: number; value: number }[] | null;
+  /** El path apunta a la skill elegida en el ChoiceSet de este mismo item. */
+  elegida?: boolean;
   mode?: string;
   id?: string | null;
   selector?: string;
@@ -143,6 +151,10 @@ export interface Equipment extends ContentBase {
   strength: number | null;
   checkPenalty: number | null;
   speedPenalty: number | null;
+  /** Potency, striking, resilient y runas de propiedad. Ver rules/runas.ts. */
+  runes: Runes;
+  /** Adamantina, mithral… Cambian dureza y precio. */
+  material: { type: string; grade: string | null } | null;
 }
 
 export interface Deity extends ContentBase {

@@ -30,21 +30,49 @@ const slugify = (name) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 
+/*
+ * Los templates de Foundry llevan corchetes ANIDADOS: `@Damage[1d6[bleed]]`.
+ * Un `\[[^\]]+\]` corta en el primer `]` y deja el otro suelto, que es por que
+ * la runa Wounding decia "deal an extra ] damage" y los colmillos de la anadi
+ * "deals ] damage". Estos patrones admiten un nivel de anidamiento.
+ */
+const ANIDADO = String.raw`(?:[^\[\]]|\[[^\]]*\])*`;
+const CON_ETIQUETA = new RegExp(String.raw`@(?:Check|Damage|Template|Localize)\[${ANIDADO}\]\{([^}]*)\}`, 'g');
+const DANO = new RegExp(String.raw`@Damage\[(${ANIDADO})\]`, 'g');
+const OTROS = new RegExp(String.raw`@(?:Check|Template|Localize)\[${ANIDADO}\]`, 'g');
+
+/** `1d6[bleed]` -> `1d6 bleed`; `2d6[persistent,fire]` -> `2d6 persistent fire`. */
+function formatoDeDano(payload) {
+  // Primero los corchetes internos, que llevan los tipos: las comas de ADENTRO
+  // (`1d6[persistent,fire]`) no separan instancias de dano, las de afuera si.
+  const conTipos = payload.replace(/\[([^\]]*)\]/g, (_, dentro) => ' ' + dentro.split(',').join(' '));
+  return conTipos.split(',').join(' mas ').replace(/\s+/g, ' ').trim();
+}
+
 /**
  * Limpia el HTML de descripcion: resuelve los enlaces propios de Foundry a texto
  * plano para que se pueda renderizar sin su motor de templates.
  *   @UUID[Compendium...Item.abc]{Power Attack} -> Power Attack
+ *   @Damage[1d6[bleed]]                        -> 1d6 bleed
  *   [[/r 1d6]]{1d6}                            -> 1d6
  */
 function cleanDescription(html) {
   if (!html) return '';
   return html
-    .replace(/@UUID\[[^\]]+\]\{([^}]*)\}/g, '$1')
-    .replace(/@UUID\[[^\]]+\]/g, '')
-    .replace(/@(Check|Damage|Template|Localize)\[[^\]]+\]\{([^}]*)\}/g, '$2')
-    .replace(/@(Check|Damage|Template|Localize)\[[^\]]+\]/g, '')
-    .replace(/\[\[[^\]]+\]\]\{([^}]*)\}/g, '$1')
-    .replace(/\[\[\/[^\]]+\]\]/g, '')
+    // @Compendium es la forma vieja de @UUID; sigue apareciendo en algunos conjuros.
+    .replace(/@(?:UUID|Compendium)\[[^\]]+\]\{([^}]*)\}/g, '$1')
+    .replace(/@(?:UUID|Compendium)\[[^\]]+\]/g, '')
+    // Con etiqueta explicita gana la etiqueta; sin ella se traduce el contenido.
+    .replace(CON_ETIQUETA, '$1')
+    .replace(DANO, (_, payload) => formatoDeDano(payload))
+    .replace(OTROS, '')
+    // Tiradas en linea. Tambien anidan: `[[/r (3d8+8)[healing]]]`, y por cortar
+    // en el primer `]` dejaban un "restoring ] Hit Points".
+    // El `(?!\])` es lo que hace que `[[/r (3d8+8)[healing]]]` cierre en el `]]`
+    // de afuera: sin eso el no-codicioso cierra en el de adentro y sobra un `]`.
+    .replace(/\[\[[\s\S]*?\]\](?!\])\{([^}]*)\}/g, '$1')
+    .replace(/\[\[\/r\s*([\s\S]*?)\]\](?!\])/g, (_, formula) => formatoDeDano(formula.split('#')[0]))
+    .replace(/\[\[[\s\S]*?\]\](?!\])/g, '')
     .trim();
 }
 
@@ -81,7 +109,43 @@ function grantedItems(raw) {
  *                        (system.proficiencies.defenses.heavy.rank = 2). Es como el
  *                        dataset codifica TODA la progresion de proficiencias por nivel.
  */
-const PROFICIENCY_PATH = /^system\.(proficiencies\.|saves\.|perception)/;
+/*
+ * `system.skills.` va incluido: sin el, se descartaban 355 reglas y con ellas
+ * el entrenamiento que dan las herencias (Skilled Heritage), los rasgos de
+ * clase y las dotes. La Skilled Heritage quedaba sin la skill que promete.
+ */
+const PROFICIENCY_PATH = /^system\.(proficiencies\.|saves\.|perception|skills\.)/;
+
+/**
+ * El rango que otorga una regla, que no siempre es un numero fijo.
+ *
+ * La Skilled Heritage sube a experto en nivel 5, y el dataset lo escribe de dos
+ * formas distintas: `ternary(gte(@actor.level,5),2,1)` o unos brackets por
+ * nivel. Las dos se normalizan a la misma lista `porNivel`, de mayor a menor,
+ * para que el motor solo tenga que buscar el primer tramo que le sirve.
+ */
+function rangoDeRegla(value) {
+  if (typeof value === 'number') return { value, porNivel: null };
+
+  if (value && Array.isArray(value.brackets)) {
+    const porNivel = value.brackets
+      .filter((b) => typeof b.value === 'number')
+      .map((b) => ({ desde: b.start ?? 1, value: b.value }))
+      .sort((a, b) => b.desde - a.desde);
+    return { value: null, porNivel: porNivel.length ? porNivel : null };
+  }
+
+  if (typeof value === 'string') {
+    // ternary(gte(@actor.level,N),alto,bajo)
+    const m = value.match(/ternary\(gte\(@actor\.level,\s*(\d+)\)\s*,\s*(\d+)\s*,\s*(\d+)\)/);
+    if (m) {
+      const [, nivel, alto, bajo] = m;
+      return { value: null, porNivel: [{ desde: Number(nivel), value: Number(alto) }, { desde: 1, value: Number(bajo) }] };
+    }
+  }
+
+  return { value: null, porNivel: null };
+}
 
 function relevantRules(rules) {
   if (!Array.isArray(rules)) return [];
@@ -93,11 +157,18 @@ function relevantRules(rules) {
     )
     .map((r) => {
       if (r.key === 'ActiveEffectLike') {
+        const path = r.path.replace(/^system\./, '').replace(/\.rank$/, '');
         return {
           key: 'Proficiency',
-          path: r.path.replace(/^system\./, '').replace(/\.rank$/, ''),
+          path,
           mode: r.mode ?? 'upgrade',
-          value: typeof r.value === 'number' ? r.value : null,
+          ...rangoDeRegla(r.value),
+          /*
+           * `skills.{item|flags.pf2e.rulesSelections.skill}` = "la skill que
+           * elegiste en el ChoiceSet de este mismo item". Se marca en vez de
+           * dejar la llave con la plantilla adentro.
+           */
+          ...(/\{item\|/.test(path) ? { elegida: true, path: 'skills.{elegida}' } : {}),
         };
       }
       if (r.key === 'ChoiceSet') {
@@ -313,6 +384,19 @@ const mapEquipment = (d) => ({
   strength: d.system.strength ?? null,
   checkPenalty: d.system.checkPenalty ?? null,
   speedPenalty: d.system.speedPenalty ?? null,
+  /*
+   * Runas. Sin esto, los 323 objetos magicos del pack se importaban como si
+   * fueran mundanos: el Acrobat's Staff (+1 striking) salia 1d4 y +0 en vez de
+   * 2d4 y +1, porque su bonus no esta en `damage` ni en `bonus`, esta aca.
+   */
+  runes: {
+    potency: d.system.runes?.potency ?? 0,
+    striking: d.system.runes?.striking ?? 0,
+    resilient: d.system.runes?.resilient ?? 0,
+    property: d.system.runes?.property ?? [],
+  },
+  /** Adamantina, mithral, etc. Cambian dureza y precio. */
+  material: d.system.material?.type ? { type: d.system.material.type, grade: d.system.material.grade ?? null } : null,
 });
 
 const mapDeity = (d) => ({
@@ -335,6 +419,42 @@ const mapAction = (d) => ({
   actions: d.system.actions?.value ?? null,
 });
 
+/*
+ * Efectos activos: rabia, garbo, heroism, escudo alzado... Todo lo que se
+ * prende un rato y mueve numeros mientras dura.
+ *
+ * Las reglas se guardan casi crudas a proposito: interpretarlas es cosa de
+ * `rules/efectos.ts`, que esta en TypeScript y se puede testear. El importador
+ * solo filtra las claves que la app sabe leer y deja constancia del resto en
+ * `otrasReglas`, para que la hoja pueda avisar "esto hace mas de lo que calculo".
+ */
+const REGLAS_UTILES = new Set([
+  'FlatModifier',
+  'DamageDice',
+  'TempHP',
+  'BaseSpeed',
+  'Resistance',
+  'Weakness',
+  'Note',
+  'Sense',
+]);
+
+const mapEffect = (d) => {
+  const reglas = d.system.rules ?? [];
+  return {
+    ...base(d),
+    level: d.system.level?.value ?? 0,
+    // { value: 1, unit: 'minutes' }; unit 'unlimited' = hasta que lo apagues.
+    duration: {
+      value: d.system.duration?.value ?? -1,
+      unit: d.system.duration?.unit ?? 'unlimited',
+    },
+    rules: reglas.filter((r) => REGLAS_UTILES.has(r.key)),
+    /** Claves que la app no sabe aplicar (BattleForm, Strike, ChoiceSet...). */
+    otrasReglas: [...new Set(reglas.filter((r) => !REGLAS_UTILES.has(r.key)).map((r) => r.key))],
+  };
+};
+
 // ------------------------------------------------------------------- main
 
 const JOBS = [
@@ -349,6 +469,12 @@ const JOBS = [
   ['equipment-legacy', 'equipment', mapEquipment],
   ['deities-legacy', 'deities', mapDeity],
   ['actions-legacy', 'actions', mapAction],
+  // Los efectos viven repartidos en cuatro packs y salen en un solo archivo.
+  [
+    ['feat-effects-legacy', 'other-effects-legacy', 'spell-effects-legacy', 'equipment-effects-legacy'],
+    'effects',
+    mapEffect,
+  ],
 ];
 
 async function main() {
@@ -356,7 +482,8 @@ async function main() {
   const manifest = { generatedAt: new Date().toISOString(), source: 'pf2e-legacy-content', packs: {} };
 
   for (const [pack, name, mapper] of JOBS) {
-    const docs = await readPack(pack);
+    const packs = Array.isArray(pack) ? pack : [pack];
+    const docs = (await Promise.all(packs.map(readPack))).flat();
     const mapped = docs.map(mapper).sort((a, b) => a.name.localeCompare(b.name));
     const file = join(OUT, `${name}.json`);
     await writeFile(file, JSON.stringify(mapped));

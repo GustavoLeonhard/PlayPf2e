@@ -14,6 +14,8 @@ import type {
 } from '../models/content.model';
 import { ABILITIES, ABILITY_NAMES } from '../models/content.model';
 import { conditionModifiers } from './conditions';
+import { effectModifiers, type Effect } from './efectos';
+import { RAGE_SLUG, rageDamage, rageSheet, type RageSheet } from './rabia';
 import { buildStat, mod, type Modifier, type Stat } from './modifiers';
 import { evaluatePrerequisite, type PrerequisiteStatus } from './prerequisites';
 import {
@@ -30,6 +32,14 @@ import { languageSlots } from './languages';
 import { PANACHE_SPEED_BONUS, preciseStrike, vivaciousSpeed } from './panache';
 import { pendingSlots } from './progression';
 import { STARTING_MONEY_CP, formatCp, priceToCp } from './money';
+import {
+  SIN_RUNAS,
+  bonosCondicionalesDeRunas,
+  dadosPorStriking,
+  danoCondicionalDeRunas,
+  danoDeRunas,
+  resumenDeRunas,
+} from './runas';
 import { PROFICIENCY_BONUS, SKILLS, abilityMod, applyBoost } from './tables';
 
 /**
@@ -70,7 +80,9 @@ function equipadoConCustom(
           hardness: snapshot!.hardness ?? null,
           maxHp: snapshot!.maxHp ?? null,
           type: snapshot!.category === 'shield' ? 'shield' : 'armor',
-        } as Equipment);
+          runes: SIN_RUNAS,
+      material: null,
+    } as Equipment);
 
     const custom = item.custom;
     if (custom) {
@@ -149,6 +161,8 @@ export interface ContentIndex {
   featById: Map<string, Feat>;
   featureById: Map<string, ClassFeature>;
   equipmentById: Map<string, Equipment>;
+  /** Efectos activables (rabia, garbo, conjuros con duracion). Ver rules/efectos.ts. */
+  effectById: Map<string, Effect>;
   /** Acciones: los deeds que otorgan las vías del Gunslinger viven acá. */
   actionById: Map<string, ClassFeature>;
   /** Nombres de todas las dotes en minúscula; se usa para evaluar prerrequisitos. */
@@ -200,6 +214,14 @@ export interface StrikeSheet {
   damage: Stat;
   damageType: string;
   proficiency: ProficiencyRank;
+  /** Daño de runas que aplica siempre: va aparte, no se suma al dado del arma. */
+  extraDamage: { formula: string; type: string; source: string }[];
+  /** Daño que solo vale contra cierto objetivo: se muestra, no se suma. */
+  conditionalDamage: { formula: string; type: string; contra: string; source: string }[];
+  /** Bonus de runa que la hoja no puede evaluar sola (Slick, Antimagic…). */
+  runeNotes: { source: string; texto: string }[];
+  /** "+1 striking flaming", para mostrar de dónde salen los números. */
+  runas: string;
   /** Clave con la que se pisa el rango a mano (ver proficiencyOverrides). */
   profKey: string;
   traits: string[];
@@ -265,6 +287,8 @@ export interface CharacterSheet {
     preciseStrike: { flat: number; finisherDice: number } | null;
     vivacious: { conGarbo: number; sinGarbo: number } | null;
   } | null;
+  /** La furia del bárbaro, si está activa. Ver rules/rabia.ts. */
+  rage: RageSheet | null;
   /**
    * Armadura equipada, con las modificaciones del master ya aplicadas. Se expone
    * entera (y no solo su efecto en la CA) porque la hoja la deja editar.
@@ -559,6 +583,10 @@ function computeProficiencies(
   background: Background | undefined,
   activeFeatures: ClassFeature[],
   chosenFeats: Feat[],
+  // La herencia trae reglas propias, y el nivel hace falta para los rangos que
+  // suben con el (Skilled Heritage pasa a experto en 5).
+  heritage: Heritage | undefined,
+  level: number,
 ): Proficiencies {
   const skills: Record<string, ProficiencyRank> = {};
   for (const s of SKILLS) skills[s.slug] = 0;
@@ -623,31 +651,61 @@ function computeProficiencies(
 
   // Upgrades declarados por los class features activos y por los feats tomados.
   // El dataset los trae como { key: 'Proficiency', path, value } (ver importador).
-  const applyRules = (items: { rules?: { key: string; path?: string; value?: number | null }[] }[]) => {
+  /** El rango de una regla, que puede depender del nivel (Skilled Heritage). */
+  const rangoDe = (rule: RuleElement): number | null => {
+    if (rule.porNivel?.length) {
+      // Vienen de mayor a menor: el primero que alcanzás es el que vale.
+      return rule.porNivel.find((tramo) => level >= tramo.desde)?.value ?? null;
+    }
+    return rule.value ?? null;
+  };
+
+  const applyRules = (items: { rules?: RuleElement[] }[]) => {
     for (const item of items) {
       for (const rule of item.rules ?? []) {
-        if (rule.key !== 'Proficiency' || !rule.path || rule.value == null) continue;
+        if (rule.key !== 'Proficiency' || !rule.path) continue;
+        const valor = rangoDe(rule);
+        if (valor == null) continue;
+
+        /*
+         * `skills.{elegida}` = la skill que elegiste para este item. Hoy solo la
+         * usan las herencias (Skilled Heritage, Ancient Ash), que es de donde
+         * sale `heritageSkill`.
+         */
+        if (rule.elegida || rule.path === 'skills.{elegida}') {
+          const elegida = build.heritageSkill;
+          if (elegida && elegida in skills) skills[elegida] = upgrade(skills[elegida], valor);
+          continue;
+        }
+
         const parts = rule.path.split('.');
-        if (parts[0] === 'perception') prof.perception = upgrade(prof.perception, rule.value);
+        if (parts[0] === 'skills' && parts[1] in skills) {
+          skills[parts[1]] = upgrade(skills[parts[1]], valor);
+          continue;
+        }
+        if (parts[0] === 'perception') prof.perception = upgrade(prof.perception, valor);
         else if (parts[0] === 'saves' && parts[1] in prof.saves)
-          prof.saves[parts[1] as keyof typeof prof.saves] = upgrade(prof.saves[parts[1] as keyof typeof prof.saves], rule.value);
+          prof.saves[parts[1] as keyof typeof prof.saves] = upgrade(prof.saves[parts[1] as keyof typeof prof.saves], valor);
         else if (parts[0] === 'proficiencies') {
           const [, group, key] = parts;
           // attacks es un mapa abierto: la clave puede no existir todavia
           // (ej. `simple-firearms-crossbows` del Gunslinger a nivel 5).
-          if (group === 'attacks') prof.attacks[key] = upgrade(prof.attacks[key] ?? 0, rule.value);
+          if (group === 'attacks') prof.attacks[key] = upgrade(prof.attacks[key] ?? 0, valor);
           else if (group === 'defenses' && key in prof.defenses)
-            prof.defenses[key as keyof typeof prof.defenses] = upgrade(prof.defenses[key as keyof typeof prof.defenses], rule.value);
-          else if (group === 'classDCs') prof.classDC = upgrade(prof.classDC, rule.value);
+            prof.defenses[key as keyof typeof prof.defenses] = upgrade(prof.defenses[key as keyof typeof prof.defenses], valor);
+          else if (group === 'classDCs') prof.classDC = upgrade(prof.classDC, valor);
           else if (group === 'spellcasting' || parts[1] === undefined)
-            prof.spellcasting = upgrade(prof.spellcasting, rule.value);
+            prof.spellcasting = upgrade(prof.spellcasting, valor);
           else if (group === 'saves' && key in prof.saves)
-            prof.saves[key as keyof typeof prof.saves] = upgrade(prof.saves[key as keyof typeof prof.saves], rule.value);
+            prof.saves[key as keyof typeof prof.saves] = upgrade(prof.saves[key as keyof typeof prof.saves], valor);
         }
       }
     }
   };
 
+  // La herencia trae sus propias reglas (Skilled Heritage, Winter Orc) y hasta
+  // ahora no las miraba nadie.
+  if (heritage) applyRules([heritage]);
   applyRules(activeFeatures);
   applyRules(chosenFeats);
 
@@ -679,6 +737,25 @@ export function computeCharacter(
   content: ContentIndex,
 ): CharacterSheet {
   const warnings: string[] = [];
+
+  /*
+   * Todo lo que te esta pasando ahora mismo, en un solo lugar: las condiciones
+   * que te pusieron y los efectos que prendiste (rabia, garbo, heroism).
+   *
+   * Los dos salen por el mismo caño porque son la misma cosa —algo temporal que
+   * mueve numeros—, y asi cada formula del motor los recibe sin enterarse de
+   * cual es cual.
+   */
+  const efectosActivos = (state?.effects ?? [])
+    // La lista guarda lo que tenés a mano; solo cuenta lo que está prendido.
+    .filter((e) => e.active !== false)
+    .map((e) => content.effectById.get(e.id))
+    .filter((e): e is Effect => !!e);
+
+  const situacion = (selectores: string[]): Modifier[] => [
+    ...conditionModifiers(state, selectores),
+    ...effectModifiers(efectosActivos, selectores),
+  ];
   const level = build.level;
 
   const pf2class = build.class ? content.classBySlug.get(build.class) : undefined;
@@ -761,7 +838,14 @@ export function computeCharacter(
   const scores = computeAbilities(build, ancestry, background, pf2class, warnings);
   const mods = Object.fromEntries(ABILITIES.map((a) => [a, abilityMod(scores[a])])) as Record<Ability, number>;
 
-  const prof = computeProficiencies(build, pf2class, background, activeFeatures, chosenFeats);
+  /*
+   * La furia se prende con el MISMO efecto del pack que el resto (para el
+   * jugador es un interruptor más), pero sus números están escritos a mano:
+   * Foundry los tiene en código, no en los datos. Ver rules/rabia.ts.
+   */
+  const rage = efectosActivos.some((e) => e.slug === RAGE_SLUG) ? rageSheet(level, mods.con) : null;
+
+  const prof = computeProficiencies(build, pf2class, background, activeFeatures, chosenFeats, heritage, level);
 
   // "Deity's favored weapon" queda como una clave sin sentido hasta que hay deidad:
   // recién ahí se sabe qué arma es.
@@ -835,19 +919,25 @@ export function computeCharacter(
     mod(dexCap != null && mods.dex > dexCap ? `Destreza (limitada a +${dexCap})` : 'Destreza', dexToAc, 'ability'),
     ...proficiencyMods(prof.defenses[armorCategory] ?? 0, level, armor ? `${armor.name}` : 'Sin armadura'),
   ];
-  if (armor?.acBonus) acMods.push(mod(`${armor.name}`, armor.acBonus, 'item'));
+  if (armor?.acBonus) {
+    // Armor Potency sube el bonus de objeto que la armadura ya da a la CA.
+    const potencia = armor.runes?.potency ?? 0;
+    const etiqueta = potencia ? `${armor.name} (+${potencia})` : armor.name;
+    acMods.push(mod(etiqueta, armor.acBonus + potencia, 'item'));
+  }
   // El escudo suma solo mientras esté alzado, y nunca si está roto.
   if (shieldSheet && shieldSheet.raised && !shieldSheet.broken) {
     acMods.push(mod(`${shieldSheet.name} (alzado)`, shieldSheet.acBonus, 'circumstance'));
   }
-  acMods.push(...conditionModifiers(state, ['ac']));
+  if (rage) acMods.push(mod('Rabia', rage.acPenalty, 'untyped'));
+  acMods.push(...situacion(['ac']));
 
   const abilityChecks = Object.fromEntries(
     ABILITIES.map((ability) => [
       ability,
       buildStat([
         mod(ABILITY_NAMES[ability], mods[ability], 'ability'),
-        ...conditionModifiers(state, [`${ability}-based`, 'all-checks']),
+        ...situacion([`${ability}-based`, 'all-checks']),
       ]),
     ]),
   ) as Record<Ability, Stat>;
@@ -856,17 +946,20 @@ export function computeCharacter(
   const perceptionMods = [
     mod('Sabiduría', mods.wis, 'ability'),
     ...proficiencyMods(prof.perception, level, 'Perception'),
-    ...conditionModifiers(state, ['perception', 'wis-based', 'all-checks']),
+    ...situacion(['perception', 'wis-based', 'all-checks']),
   ];
 
   const saveAbility = { fortitude: 'con', reflex: 'dex', will: 'wis' } as const;
   const saves = {} as Record<'fortitude' | 'reflex' | 'will', Stat>;
   for (const save of ['fortitude', 'reflex', 'will'] as const) {
     const ability = saveAbility[save];
+    // Resilient da bonus de objeto a las TRES salvaciones por igual.
+    const resilient = armor?.runes?.resilient ?? 0;
     saves[save] = buildStat([
       mod(ability.toUpperCase(), mods[ability], 'ability'),
       ...proficiencyMods(prof.saves[save], level, save),
-      ...conditionModifiers(state, [save, `${ability}-based`, 'all-checks']),
+      ...(resilient ? [mod(`${armor?.name} (resilient)`, resilient, 'item')] : []),
+      ...situacion([save, `${ability}-based`, 'all-checks']),
     ]);
   }
 
@@ -878,7 +971,7 @@ export function computeCharacter(
     ...proficiencyMods(prof.classDC, level, 'CD de clase'),
     // Las CD tambien reciben penalidades: frightened y sickened le pegan a todo, y
     // stupefied/clumsy/enfeebled segun el atributo del que dependa la CD.
-    ...conditionModifiers(state, ['all-checks', `${keyAbility}-based`]),
+    ...situacion(['all-checks', `${keyAbility}-based`]),
   ]);
 
   // --- skills
@@ -888,7 +981,7 @@ export function computeCharacter(
     const modifiers: Modifier[] = [
       mod(def.ability.toUpperCase(), mods[def.ability], 'ability'),
       ...proficiencyMods(rank, level, def.name),
-      ...conditionModifiers(state, [`skill:${def.slug}`, `${def.ability}-based`, 'all-checks']),
+      ...situacion([`skill:${def.slug}`, `${def.ability}-based`, 'all-checks']),
     ];
     /*
      * La penalidad de chequeos se aplica SIEMPRE, cumplas o no el requisito de
@@ -910,7 +1003,7 @@ export function computeCharacter(
     stat: buildStat([
       mod('INT', mods.int, 'ability'),
       ...proficiencyMods(lore.rank, level, `${lore.name} Lore`),
-      ...conditionModifiers(state, [`skill:${key}`, 'int-based', 'all-checks']),
+      ...situacion([`skill:${key}`, 'int-based', 'all-checks']),
     ]),
   }));
 
@@ -936,7 +1029,8 @@ export function computeCharacter(
         // Solo se aplican solos los que dependen de usar Percepcion.
         return pred.length === 1 && pred[0] === 'perception' && usandoPercepcion;
       })
-      .map(({ item, rule }) => mod(item.name, rule.value!, (rule.type ?? 'untyped') as Modifier['type']));
+      .map(({ item, rule }) => mod(item.name, rule.value!, (rule.type ?? 'untyped') as Modifier['type']))
+      .concat(situacion(['initiative']));
 
   // Igual que en las skills: si esta untrained no suma el nivel.
   const conBonus = (base: Stat, usandoPercepcion: boolean): Stat =>
@@ -996,7 +1090,9 @@ export function computeCharacter(
     speedPenalty: null,
     hardness: null,
     maxHp: null,
-  } as Equipment;
+    runes: SIN_RUNAS,
+      material: null,
+    } as Equipment;
 
 
   //
@@ -1034,6 +1130,8 @@ export function computeCharacter(
       speedPenalty: null,
       hardness: null,
       maxHp: null,
+      runes: SIN_RUNAS,
+      material: null,
     } as Equipment;
 
     // El tag "custom" de la hoja significa "esto difiere del catálogo", y un
@@ -1086,7 +1184,9 @@ export function computeCharacter(
             speedPenalty: null,
             hardness: null,
             maxHp: null,
-          } as Equipment);
+            runes: SIN_RUNAS,
+      material: null,
+    } as Equipment);
 
       const custom = item.custom;
       if (custom) {
@@ -1127,8 +1227,10 @@ export function computeCharacter(
         mod(ability.toUpperCase(), mods[ability], 'ability'),
         ...proficiencyMods(rank, level, etiquetaProf),
         // El bonus del master entra como bonus de objeto, igual que una runa de potencia.
+        // Weapon Potency: bonus de objeto al ataque. No suma daño.
+        ...(weapon.runes?.potency ? [mod(`${weapon.name} (+${weapon.runes.potency})`, weapon.runes.potency, 'item')] : []),
         ...(custom?.bonusAttack ? [mod(weapon.name, custom.bonusAttack, 'item')] : []),
-        ...conditionModifiers(state, ['attack', `${ability}-based`, 'all-checks']),
+        ...situacion(['attack', `${ability}-based`, 'all-checks']),
       ]);
 
       // El dano tambien pasa por el pipeline: asi entran cosas como Singular
@@ -1149,14 +1251,24 @@ export function computeCharacter(
       if (preciso && panacheSheet.active && armaDePrecision) {
         damageMods.push(mod('Precise Strike (precisión)', preciso.flat, 'untyped'));
       }
+      const extraDeRabia = rageDamage(rage, ranged, weapon.traits.includes('agile'));
+      if (extraDeRabia) damageMods.push(mod('Rabia', extraDeRabia, 'untyped'));
       if (custom?.bonusDamage) damageMods.push(mod(weapon.name, custom.bonusDamage, 'item'));
-      damageMods.push(...conditionModifiers(state, ['str-based'].filter(() => !ranged)));
+      damageMods.push(...situacion(['damage', ...['str-based'].filter(() => !ranged)]));
 
       const dmg = weapon.damage;
       const dadoDeTrait = (prefijo: string) => {
         const trait = weapon.traits.find((t) => t.startsWith(prefijo));
         return trait?.match(/d\d+$/)?.[0] ?? null;
       };
+
+      /*
+        * Striking multiplica los DADOS, no los modificadores planos: la Fuerza,
+        * las dotes y Weapon Specialization quedan iguales. Un arma personalizada
+        * que ya declaró sus dados manda sobre esto.
+        */
+      const dadosBase = custom?.damageDice ?? (dmg ? dmg.dice : 0);
+      const dados = custom?.damageDice ? dadosBase : dadosBase * dadosPorStriking(weapon.runes?.striking ?? 0);
 
       return {
         name: weapon.name,
@@ -1172,7 +1284,21 @@ export function computeCharacter(
         notes: custom?.notes ?? null,
         custom: !!custom,
         attack,
-        damageDice: dmg ? `${dmg.dice}${dmg.die}` : '—',
+        damageDice: dmg ? `${dados}${dmg.die}` : '—',
+        /*
+         * El daño de las runas elementales va SEPARADO: las resistencias y
+         * debilidades del enemigo se aplican por tipo, y este dado no se
+         * duplica en un crítico.
+         */
+        extraDamage: danoDeRunas(weapon.runes?.property ?? []),
+        /*
+         * Lo que depende del objetivo NO se suma: el 1d6 de Disrupting solo
+         * vale contra no-muertos, y sumarlo al total mentiría en toda pelea
+         * contra cualquier otra cosa. Se muestra para que lo tires vos.
+         */
+        conditionalDamage: danoCondicionalDeRunas(weapon.runes?.property ?? []),
+        runeNotes: bonosCondicionalesDeRunas(weapon.runes?.property ?? []),
+        runas: resumenDeRunas(weapon.runes),
         damage: buildStat(damageMods),
         damageType: dmg?.damageType ?? '',
         proficiency: rank,
@@ -1223,7 +1349,7 @@ export function computeCharacter(
       attack: buildStat([
         mod(keyAbility.toUpperCase(), mods[keyAbility], 'ability'),
         ...proficiencyMods(spellProficiency, level, 'Conjuros'),
-        ...conditionModifiers(state, ['attack', `${keyAbility}-based`, 'all-checks']),
+        ...situacion(['attack', `${keyAbility}-based`, 'all-checks']),
       ]),
       dc: buildStat([
         mod('Base', 10, 'untyped'),
@@ -1231,7 +1357,7 @@ export function computeCharacter(
         ...proficiencyMods(spellProficiency, level, 'Conjuros'),
         // stupefied dice explicitamente "spell DCs", asi que la CD de conjuro
         // necesita el alias del atributo, no solo 'all-checks'.
-        ...conditionModifiers(state, ['all-checks', `${keyAbility}-based`]),
+        ...situacion(['all-checks', `${keyAbility}-based`]),
       ]),
     };
 
@@ -1320,13 +1446,13 @@ export function computeCharacter(
       attack: buildStat([
         mod(focusAbility.toUpperCase(), mods[focusAbility], 'ability'),
         ...proficiencyMods(prof.spellcasting, level, 'Conjuros'),
-        ...conditionModifiers(state, ['attack', `${focusAbility}-based`, 'all-checks']),
+        ...situacion(['attack', `${focusAbility}-based`, 'all-checks']),
       ]),
       dc: buildStat([
         mod('Base', 10, 'untyped'),
         mod(focusAbility.toUpperCase(), mods[focusAbility], 'ability'),
         ...proficiencyMods(prof.spellcasting, level, 'Conjuros'),
-        ...conditionModifiers(state, ['all-checks', `${focusAbility}-based`]),
+        ...situacion(['all-checks', `${focusAbility}-based`]),
       ]),
     };
 
@@ -1396,11 +1522,14 @@ export function computeCharacter(
     mod(ancestry?.name ?? 'Base', ancestry?.speed ?? 25, 'untyped'),
     ...(penalidadVelocidad ? [mod(`${armor!.name}`, penalidadVelocidad, 'untyped')] : []),
     ...bonusDeGarbo(panacheSheet),
+    // Las condiciones no tocan la velocidad, pero los efectos si (Haste, Longstrider).
+    ...situacion(['speed']),
   ]);
 
   return {
     name: build.name || 'Sin nombre',
     panache: panacheSheet,
+    rage,
     level,
     className: pf2class?.name ?? '—',
     ancestryName: ancestry?.name ?? '—',

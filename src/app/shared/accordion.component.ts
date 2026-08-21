@@ -1,4 +1,6 @@
-import { Component, input, linkedSignal } from '@angular/core';
+import { Component, inject, input, linkedSignal } from '@angular/core';
+
+import { AccordionStateService } from './accordion-state.service';
 
 /**
  * Sección plegable de la hoja.
@@ -23,7 +25,7 @@ import { Component, input, linkedSignal } from '@angular/core';
         plegado al usarlo.
       -->
       <div class="acc-head">
-        <button class="acc-toggle" [attr.aria-expanded]="abierto()" (click)="abierto.set(!abierto())">
+        <button class="acc-toggle" [attr.aria-expanded]="abierto()" (click)="alternar()">
           <span class="chev">{{ abierto() ? '▾' : '▸' }}</span>
           <span class="acc-title">{{ titulo() }}</span>
           @if (subtitulo()) {
@@ -117,9 +119,21 @@ export class AccordionComponent {
   readonly titulo = input.required<string>();
   /** Dato al lado del título: la tradición, el bulk cargado… */
   readonly subtitulo = input('');
-  /** Si arranca abierta. Las que se usan en cada turno sí; el inventario no. */
+  /** Si arranca abierta la PRIMERA vez, antes de que el usuario toque nada. */
   readonly inicial = input(true);
 
-  /** linkedSignal: el usuario manda, pero si cambia el default lo sigue. */
-  readonly abierto = linkedSignal(() => this.inicial());
+  private readonly estado = inject(AccordionStateService);
+
+  /**
+   * linkedSignal: el usuario manda, pero si cambia el default lo sigue. El
+   * default ahora sale de lo guardado, así que abrir otro personaje trae el
+   * plegado de ESE personaje sin recrear el componente.
+   */
+  readonly abierto = linkedSignal(() => this.estado.abierto(this.titulo(), this.inicial()));
+
+  alternar() {
+    const nuevo = !this.abierto();
+    this.abierto.set(nuevo);
+    this.estado.guardar(this.titulo(), nuevo);
+  }
 }

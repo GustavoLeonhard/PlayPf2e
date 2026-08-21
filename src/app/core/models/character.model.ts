@@ -151,6 +151,14 @@ export interface CharacterBuild {
   level: number;
   ancestry: string | null;
   heritage: string | null;
+  /**
+   * La skill que promete la herencia (Skilled Heritage, Ancient Ash).
+   *
+   * Va aparte de `trainedSkills` porque no es una skill entrenada más: la
+   * herencia la sube a experta en nivel 5, y para eso hay que saber que vino
+   * de ahí.
+   */
+  heritageSkill?: string | null;
   background: string | null;
   class: string | null;
   /** id de la deidad; Cleric y Champion la necesitan, el resto es opcional. */
@@ -252,6 +260,15 @@ export interface CharacterState {
   hp: { current: number; temp: number };
   heroPoints: number;
   conditions: { id: string; value?: number }[];
+  /**
+   * Efectos: rabia, garbo, heroism… Lo mismo que una condición, salvo que
+   * estos los elegís vos. Guardan solo el id; el efecto sale del pack.
+   *
+   * La lista es lo que tenés A MANO, no lo que está pasando: un bárbaro deja
+   * la furia puesta y la prende y apaga en cada pelea, sin volver a buscarla.
+   * `active` ausente = activo, porque antes estar en la lista era estarlo.
+   */
+  effects?: { id: string; active?: boolean }[];
   focusPoints: number;
   /** Escudo: si esta alzado (dura hasta el inicio de tu proximo turno) y como esta de HP. */
   shield: { raised: boolean; hp: number };

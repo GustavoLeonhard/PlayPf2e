@@ -165,3 +165,24 @@ textarea {
     margin: 0.6rem 0;
   }
 }
+
+/* Avatar del usuario: con foto o con las iniciales, siempre el mismo círculo. */
+.avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+}
+
+.avatar.vacio {
+  background: var(--surface-2);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}

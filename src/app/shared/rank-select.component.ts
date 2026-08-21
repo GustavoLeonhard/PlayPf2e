@@ -51,11 +51,21 @@ import { PROFICIENCY_NAMES, type ProficiencyRank } from '../core/models/content.
     select:hover,
     select:focus {
       border-color: var(--border);
-      color: var(--fg);
+      color: var(--text);
     }
 
     .manual select {
       color: var(--accent);
+    }
+
+    /*
+      La lista desplegada la pinta el sistema operativo, no la página: hereda el
+      "background: transparent" del select y el texto quedaba del color del fondo,
+      ilegible. Las opciones necesitan su propio par color/fondo, explícito.
+    */
+    option {
+      background: var(--surface);
+      color: var(--text);
     }
 
     .undo {
@@ -69,7 +79,7 @@ import { PROFICIENCY_NAMES, type ProficiencyRank } from '../core/models/content.
     }
 
     .undo:hover {
-      color: var(--fg);
+      color: var(--text);
     }
   `,
 })
