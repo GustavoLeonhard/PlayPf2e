@@ -920,3 +920,37 @@ Tres piezas:
 
 Verificado en vivo: humano + Skilled Heritage → Occultism entrenada **+3** a
 nivel 1, y al poner nivel 5 pasa a experta, **+9**.
+
+### 4-untricies. Entrenamiento repetido
+
+La regla: si algo te entrena en una habilidad que YA tenías entrenada, elegís
+otra en su lugar. Antes se perdía en silencio.
+
+Hay **dos situaciones distintas** y se resuelven distinto, porque el jugador
+tiene distinta capacidad de maniobra:
+
+**1. Orígenes fijos** (clase + trasfondo + herencia de skill fija). No hay
+ninguna perilla que tocar: un clérigo con trasfondo Acolyte recibe Religion dos
+veces y no puede evitarlo. Ahí se **debe una habilidad libre**, con el porqué
+escrito: *"Acolyte te entrena en religion, que ya tenías por Cleric"*. Aparece
+como aviso hasta que la elegís, y el desplegable solo ofrece las que todavía no
+tenés.
+
+**2. Orígenes elegibles** (la skill de Skilled Heritage). Ahí no se debe nada:
+se **avisa y se cambia la elección**, que es más directo que agregar una deuda
+para compensar una decisión que se puede rehacer. El aviso va en dos lugares:
+cada opción del desplegable dice *"— ya te la da Acolyte"*, y si la elegida
+choca sale una advertencia en la hoja.
+
+El aviso del desplegable sale de `sheet.skillsFijas` (skill → origen), no de
+"qué skills tienen rango > 0": con lo segundo, una skill elegida por la
+herencia se marcaba a sí misma, y peor, si cambiabas el trasfondo DESPUÉS de
+elegirla el choque no aparecía nunca.
+
+Las deudas se guardan en `build.skillReplacements`, con clave
+`<skill>:<origen>`: si cambiás de trasfondo, la deuda desaparece y la elección
+con ella, sin dejar basura.
+
+Verificado en vivo: Human + Cleric + Acolyte → aviso de habilidad libre, se
+elige Stealth y queda entrenada (+3) con el aviso apagado. Y en chuqui, elegir
+Acrobatics para la herencia (que ya da Acrobat) dispara la advertencia.

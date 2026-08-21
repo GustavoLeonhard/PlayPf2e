@@ -557,10 +557,36 @@
             >
               <option value="">Elegí una…</option>
               @for (op of heritageSkillChoices(); track op.id) {
-                <option [value]="op.id" [selected]="op.id === record()?.build?.heritageSkill">{{ op.label }}</option>
+                <!--
+                  Se avisa cuál ya tenés por otro lado: elegir esa no te suma
+                  nada, la regla te daría otra libre y es un rodeo al pedo.
+                -->
+                <option [value]="op.id" [selected]="op.id === record()?.build?.heritageSkill">
+                  {{ op.label }}{{ skillsYaEntrenadas()[op.id] ? ' — ya te la da ' + skillsYaEntrenadas()[op.id] : '' }}
+                </option>
               }
             </select>
             <small class="muted">Entrenado, y experto a partir de nivel 5.</small>
+          </label>
+        }
+
+        <!--
+          La regla del entrenamiento repetido: si algo te entrena en una skill
+          que ya tenías, elegís otra. Acá se saldan esas deudas.
+        -->
+        @for (libre of skillsLibres(); track libre.clave) {
+          <label class="eleccion-skill libre" [class.pendiente]="!libre.elegida">
+            Habilidad libre
+            <select
+              [value]="libre.elegida ?? ''"
+              (change)="setSkillLibre(libre.clave, $any($event.target).value)"
+            >
+              <option value="">Elegí una…</option>
+              @for (op of opcionesLibres(libre.clave); track op.id) {
+                <option [value]="op.id" [selected]="op.id === libre.elegida">{{ op.label }}</option>
+              }
+            </select>
+            <small class="muted">{{ libre.motivo }}.</small>
           </label>
         }
 

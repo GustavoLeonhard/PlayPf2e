@@ -1931,3 +1931,80 @@ describe('skills que da la herencia', () => {
     expect(computeCharacter(build, emptyState(), content).skills.find((s) => s.slug === 'athletics')!.rank).toBe(2);
   });
 });
+
+describe('entrenamiento repetido', () => {
+  // La regla: si algo te entrena en una skill que ya tenías, elegís otra.
+  const acolyte = backgrounds.find((b) => b.slug === 'acolyte')!;
+
+  const clerigoAcolito = () => {
+    const build = emptyBuild();
+    build.level = 1;
+    build.ancestry = 'human';
+    build.class = 'cleric';
+    build.background = acolyte.slug;
+    build.heritage = heritages.find((h) => h.name === 'Skilled Heritage')!.id;
+    return build;
+  };
+
+  it('el trasfondo entrena Religion, y el clérigo también: queda una libre a deber', () => {
+    expect(acolyte.trainedSkills).toContain('religion');
+    const sheet = computeCharacter(clerigoAcolito(), emptyState(), content);
+
+    // El clérigo entrena Religion por clase; Acolyte la repite.
+    expect(sheet.skillsLibres.length).toBeGreaterThan(0);
+    expect(sheet.skillsLibres.some((l) => /religion/i.test(l.motivo))).toBe(true);
+  });
+
+  it('el motivo dice de dónde viene, no solo que falta algo', () => {
+    const libre = computeCharacter(clerigoAcolito(), emptyState(), content).skillsLibres[0];
+    expect(libre.motivo).toMatch(/ya tenías por/);
+  });
+
+  it('avisa mientras no la elijas, y deja de avisar cuando la elegís', () => {
+    const build = clerigoAcolito();
+    const antes = computeCharacter(build, emptyState(), content);
+    const clave = antes.skillsLibres[0].clave;
+    expect(antes.warnings.some((w) => /habilidad libre/i.test(w.text ?? String(w)))).toBe(true);
+
+    build.skillReplacements = { [clave]: 'stealth' };
+    const despues = computeCharacter(build, emptyState(), content);
+    expect(despues.skills.find((s) => s.slug === 'stealth')!.rank).toBe(1);
+    expect(despues.warnings.some((w) => /habilidad libre/i.test(w.text ?? String(w)))).toBe(false);
+  });
+
+  it('sin repetición no se debe nada', () => {
+    const build = humanFighter();
+    expect(computeCharacter(build, emptyState(), content).skillsLibres).toEqual([]);
+  });
+});
+
+describe('la skill de la herencia chocando con una fija', () => {
+  it('avisa si la elegida ya te la da el trasfondo, aunque la hayas elegido antes', () => {
+    const build = emptyBuild();
+    build.level = 1;
+    build.ancestry = 'human';
+    build.class = 'fighter';
+    build.heritage = heritages.find((h) => h.name === 'Skilled Heritage')!.id;
+    build.background = backgrounds.find((b) => b.slug === 'acolyte')!.slug;
+    // Acolyte entrena Religion; elegir Religion en la herencia no suma nada.
+    build.heritageSkill = 'religion';
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.skillsFijas['religion']).toBeTruthy();
+    expect(sheet.warnings.some((w) => /herencia .*ya te la da/i.test(w.text ?? String(w)))).toBe(true);
+  });
+
+  it('sin choque no avisa', () => {
+    const build = emptyBuild();
+    build.level = 1;
+    build.ancestry = 'human';
+    build.class = 'fighter';
+    build.heritage = heritages.find((h) => h.name === 'Skilled Heritage')!.id;
+    build.background = backgrounds.find((b) => b.slug === 'acolyte')!.slug;
+    build.heritageSkill = 'thievery';
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.skills.find((s) => s.slug === 'thievery')!.rank).toBe(1);
+    expect(sheet.warnings.some((w) => /herencia .*ya te la da/i.test(w.text ?? String(w)))).toBe(false);
+  });
+});

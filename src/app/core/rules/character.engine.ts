@@ -180,6 +180,10 @@ export interface Proficiencies {
   attacks: Record<string, ProficiencyRank>;
   defenses: Record<'unarmored' | 'light' | 'medium' | 'heavy', ProficiencyRank>;
   skills: Record<string, ProficiencyRank>;
+  /** Habilidades libres que se deben por entrenamiento repetido. */
+  skillsLibres?: SkillLibre[];
+  /** Skills que entrena algo FIJO (clase, trasfondo, herencia), y de dónde. */
+  skillsFijas?: Record<string, string>;
   /** Lores: clave `lore:<slug>`, con su nombre para mostrar. */
   lores: Record<string, { name: string; rank: ProficiencyRank }>;
   classDC: ProficiencyRank;
@@ -227,6 +231,16 @@ export interface StrikeSheet {
   traits: string[];
 }
 
+/**
+ * Una habilidad libre que el personaje se ganó porque algo lo entrenó en una
+ * que ya tenía. `elegida` es null mientras no la resuelva.
+ */
+export interface SkillLibre {
+  clave: string;
+  motivo: string;
+  elegida?: string;
+}
+
 export interface CharacterSheet {
   name: string;
   level: number;
@@ -251,6 +265,17 @@ export interface CharacterSheet {
   saves: Record<'fortitude' | 'reflex' | 'will', Stat>;
   classDC: Stat;
   skills: { slug: string; name: string; rank: ProficiencyRank; stat: Stat }[];
+  /**
+   * Habilidades libres ganadas por entrenamiento repetido, con el porqué.
+   * Ver la regla en computeProficiencies.
+   */
+  skillsLibres: SkillLibre[];
+  /**
+   * Skills que ya entrena algo que NO podés cambiar, con su origen. Sirve para
+   * avisar antes de elegir la de la herencia: si cae en una de estas, la
+   * elección se desperdicia.
+   */
+  skillsFijas: Record<string, string>;
   /** Lores (Hunting Lore, Warfare Lore…): siempre basados en Inteligencia. */
   lores: { slug: string; name: string; rank: ProficiencyRank; stat: Stat }[];
   /**
@@ -591,6 +616,9 @@ function computeProficiencies(
   const skills: Record<string, ProficiencyRank> = {};
   for (const s of SKILLS) skills[s.slug] = 0;
 
+  /** Habilidades libres que se deben por entrenamiento repetido. */
+  const skillsLibres: SkillLibre[] = [];
+
   const prof: Proficiencies = {
     perception: pf2class?.perception ?? 0,
     saves: {
@@ -632,10 +660,52 @@ function computeProficiencies(
     prof.lores[key] = { name: lore.replace(/\s*Lore$/i, ''), rank: upgrade(prof.lores[key]?.rank ?? 0, 1) };
   }
 
-  // Skills entrenadas: de clase (fijas + elegidas) y de trasfondo.
-  for (const slug of pf2class?.trainedSkills.fixed ?? []) if (slug in skills) skills[slug] = upgrade(skills[slug], 1);
+  /*
+   * Entrenamiento repetido.
+   *
+   * Si algo te entrena en una skill que YA tenías entrenada, la regla dice que
+   * elegís otra en su lugar. Pasa todo el tiempo: un humano con Skilled
+   * Heritage que eligió Religion y después toma Acolyte, que también la da.
+   *
+   * Se juntan primero todos los orígenes FIJOS —los que no te dejan cambiarlos—
+   * y recién ahí se ve cuáles cayeron repetidos. Los que sí se pueden elegir
+   * (la skill de la herencia, las libres de clase) no generan una deuda: se
+   * avisa al elegirlas y se cambia ahí, que es más directo.
+   */
+  const fijas: { slug: string; origen: string }[] = [
+    ...(pf2class?.trainedSkills.fixed ?? []).map((slug) => ({ slug, origen: pf2class?.name ?? 'Clase' })),
+    ...(background?.trainedSkills ?? []).map((slug) => ({ slug, origen: background?.name ?? 'Trasfondo' })),
+    ...(heritage?.rules ?? [])
+      .filter((r) => r.key === 'Proficiency' && !r.elegida && r.path?.startsWith('skills.'))
+      .map((r) => ({ slug: r.path!.split('.')[1], origen: heritage!.name })),
+  ].filter((g) => g.slug in skills);
+
+  /** Skill fija -> de dónde viene. Lo usa la UI para avisar antes de elegir. */
+  const vistas = new Map<string, string>();
+  for (const { slug, origen } of fijas) {
+    const anterior = vistas.get(slug);
+    if (anterior) {
+      // Repetida: queda a deber una libre, con el porqué escrito.
+      skillsLibres.push({
+        clave: `${slug}:${origen}`,
+        motivo: `${origen} te entrena en ${slug}, que ya tenías por ${anterior}`,
+      });
+      continue;
+    }
+    vistas.set(slug, origen);
+    skills[slug] = upgrade(skills[slug], 1);
+  }
+
+  // Las libres que ya elegiste para saldar esas deudas.
+  for (const libre of skillsLibres) {
+    const elegida = build.skillReplacements?.[libre.clave];
+    if (elegida && elegida in skills) {
+      skills[elegida] = upgrade(skills[elegida], 1);
+      libre.elegida = elegida;
+    }
+  }
+
   for (const slug of build.trainedSkills) if (slug in skills) skills[slug] = upgrade(skills[slug], 1);
-  for (const slug of background?.trainedSkills ?? []) if (slug in skills) skills[slug] = upgrade(skills[slug], 1);
 
   // Skill increases: +1 rango cada vez, hasta expert antes de nivel 7, etc.
   // (La regla de tope por nivel se muestra como advertencia, no se bloquea.)
@@ -726,6 +796,8 @@ function computeProficiencies(
     if (clave in prof.defenses) prof.defenses[clave as keyof typeof prof.defenses] = rango;
   }
 
+  prof.skillsLibres = skillsLibres;
+  prof.skillsFijas = Object.fromEntries(vistas);
   return prof;
 }
 
@@ -846,6 +918,24 @@ export function computeCharacter(
   const rage = efectosActivos.some((e) => e.slug === RAGE_SLUG) ? rageSheet(level, mods.con) : null;
 
   const prof = computeProficiencies(build, pf2class, background, activeFeatures, chosenFeats, heritage, level);
+
+  // Entrenamiento repetido: se avisa una vez por cada habilidad libre sin usar.
+  for (const libre of prof.skillsLibres ?? []) {
+    if (!libre.elegida) warnings.push(`Te falta elegir una habilidad libre: ${libre.motivo}.`);
+  }
+
+  /*
+   * La skill de la herencia cayendo en una que ya te da algo fijo. No genera
+   * una deuda —la herencia se puede cambiar, que es más directo— pero hay que
+   * decirlo, porque si no la elección no hace nada.
+   */
+  const deLaHerencia = build.heritageSkill;
+  const origenFijo = deLaHerencia ? prof.skillsFijas?.[deLaHerencia] : null;
+  if (deLaHerencia && origenFijo) {
+    warnings.push(
+      `La habilidad de la herencia (${deLaHerencia}) ya te la da ${origenFijo}: elegí otra, o quedará desperdiciada.`,
+    );
+  }
 
   // "Deity's favored weapon" queda como una clave sin sentido hasta que hay deidad:
   // recién ahí se sabe qué arma es.
@@ -1552,6 +1642,8 @@ export function computeCharacter(
     deity,
     alignment: build.alignment,
     skills,
+    skillsLibres: prof.skillsLibres ?? [],
+    skillsFijas: prof.skillsFijas ?? {},
     lores,
     initiative: { options: initiativeOptions, conditional: initiativeConditional },
     money: { startingCp: STARTING_MONEY_CP, spentCp, remainingCp: STARTING_MONEY_CP - spentCp },

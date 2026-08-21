@@ -1579,3 +1579,9 @@ button.efecto-nombre:hover {
   border-bottom: 1px solid var(--border);
   font-size: 0.85rem;
 }
+
+/* Una habilidad libre sin resolver: se ve que falta hacer algo. */
+.eleccion-skill.pendiente {
+  border-left: 3px solid var(--accent);
+  padding-left: 0.5rem;
+}

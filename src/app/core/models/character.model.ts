@@ -215,6 +215,14 @@ export interface CharacterBuild {
   /** Skills entrenadas por eleccion libre de clase (las adicionales). */
   trainedSkills: string[];
   /**
+   * Las habilidades libres que ganaste porque algo te entrenó en una que ya
+   * tenías (la regla de entrenamiento repetido).
+   *
+   * La clave identifica de dónde salió la deuda (`religion:Acolyte`), así que
+   * si cambiás de trasfondo la deuda desaparece y la elección con ella.
+   */
+  skillReplacements?: Record<string, string>;
+  /**
    * Idiomas elegidos, ademas de los que da la ancestria. Puede haber inventados por
    * el master: se guardan tal cual se escribieron, no hay una lista cerrada.
    */

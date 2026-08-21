@@ -468,6 +468,38 @@ export class SheetComponent implements OnInit {
     }));
   });
 
+  /**
+   * Las habilidades ya entrenadas por OTRA cosa.
+   *
+   * Sirve para avisar antes de elegir: si tomás una que ya tenés, la regla te
+   * da otra libre igual, pero es un rodeo que conviene evitar de entrada.
+   */
+  readonly skillsYaEntrenadas = computed(() => this.sheet()?.skillsFijas ?? {});
+
+  /** Las libres que se deben, con el porqué. */
+  readonly skillsLibres = computed(() => this.sheet()?.skillsLibres ?? []);
+
+  /** Para el desplegable de una libre: todo lo que todavía no tenés entrenado. */
+  opcionesLibres(clave: string): { id: string; label: string }[] {
+    const sheet = this.sheet();
+    const yaElegida = this.record()?.build.skillReplacements?.[clave];
+    return SKILLS.filter((s) => {
+      const actual = sheet?.skills.find((x) => x.slug === s.slug);
+      return s.slug === yaElegida || !actual || actual.rank === 0;
+    }).map((s) => ({ id: s.slug, label: s.name }));
+  }
+
+  async setSkillLibre(clave: string, slug: string) {
+    const record = this.record();
+    if (!record) return;
+
+    const actuales = { ...(record.build.skillReplacements ?? {}) };
+    if (slug) actuales[clave] = slug;
+    else delete actuales[clave];
+    record.build.skillReplacements = actuales;
+    await this.guardar(record);
+  }
+
   async setHeritageSkill(slug: string) {
     const record = this.record();
     if (!record) return;
