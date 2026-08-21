@@ -47,6 +47,7 @@ const ancestries = load<Ancestry>('ancestries');
 const heritages = load<Heritage>('heritages');
 const backgrounds = load<Background>('backgrounds');
 const features = load<ClassFeature>('class-features');
+const ancestryFeatures = load<ClassFeature>('ancestry-features');
 const feats = load<Feat>('feats');
 const equipment = load<Equipment>('equipment');
 const actions = load<ClassFeature>('actions');
@@ -61,7 +62,9 @@ const content: ContentIndex = {
   heritageById: new Map(heritages.map((h) => [h.id, h])),
   backgroundBySlug: new Map(backgrounds.map((b) => [b.slug, b])),
   featById: new Map(feats.map((f) => [f.id, f])),
-  featureById: new Map(features.map((f) => [f.id, f])),
+  // Como en la app: los rasgos de ancestría van al MISMO índice que los de
+  // clase. Tenerlos separados acá escondía bugs que en la app no existían.
+  featureById: new Map([...features, ...ancestryFeatures].map((f) => [f.id, f])),
   equipmentById: new Map(equipment.map((e) => [e.id, e])),
   actionById: new Map(actions.map((a) => [a.id, a])),
   featNames: new Set(feats.map((f) => f.name.toLowerCase())),
@@ -2006,5 +2009,256 @@ describe('la skill de la herencia chocando con una fija', () => {
     const sheet = computeCharacter(build, emptyState(), content);
     expect(sheet.skills.find((s) => s.slug === 'thievery')!.rank).toBe(1);
     expect(sheet.warnings.some((w) => /herencia .*ya te la da/i.test(w.text ?? String(w)))).toBe(false);
+  });
+});
+
+describe('entrenamiento repetido: dotes, y la diferencia entre entrenado y experto', () => {
+  /*
+   * La regla tiene dos mitades y no dan lo mismo:
+   *  - repetir ENTRENADO te da una habilidad entrenada libre,
+   *  - repetir EXPERTO o más NO te da nada: ese aumento se pierde.
+   */
+  const conDote = (nombreDote: string, extras: (b: CharacterBuild) => void = () => {}) => {
+    const build = humanFighter(4);
+    const dote = feats.find((f) => f.name === nombreDote)!;
+    build.choices.push({ level: 1, slot: 'classFeat', id: dote.id });
+    extras(build);
+    return build;
+  };
+
+  it('una dote que entrena algo que ya tenías da una habilidad libre', () => {
+    // Adroit Manipulation entrena Thievery.
+    const build = conDote('Adroit Manipulation', (b) => {
+      b.trainedSkills = [...b.trainedSkills];
+    });
+    // Se le da Thievery por otra vía fija: el trasfondo de un ladrón.
+    build.background = backgrounds.find((b) => b.trainedSkills.includes('thievery'))!.slug;
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.skillsLibres.some((l) => /thievery/i.test(l.motivo))).toBe(true);
+  });
+
+  it('una dote que te sube a EXPERTO algo que ya tenías experto no da nada, pero avisa', () => {
+    const build = humanFighter(4);
+    // Dos dedications que suben la misma skill a experto.
+    const a = feats.find((f) => f.name === 'Alkenstar Agent Dedication')!;
+    const b = feats.find((f) => f.name === 'Alter Ego Dedication')!;
+    build.choices.push({ level: 1, slot: 'classFeat', id: a.id });
+    build.choices.push({ level: 2, slot: 'classFeat', id: b.id });
+
+    const sheet = computeCharacter(build, emptyState(), content);
+
+    // Deception queda experta una sola vez, no dos.
+    expect(sheet.skills.find((s) => s.slug === 'deception')!.rank).toBe(2);
+    // Y NO se debe ninguna habilidad libre por eso.
+    expect(sheet.skillsLibres.some((l) => /deception/i.test(l.motivo))).toBe(false);
+    // Pero sí se avisa, porque conviene reentrenar una de las dos.
+    expect(sheet.warnings.some((w) => /reentrenar/i.test(w.text ?? String(w)))).toBe(true);
+  });
+
+  it('subir a experto algo que solo tenías entrenado NO es repetido: es un aumento', () => {
+    const build = humanFighter(4);
+    const dedication = feats.find((f) => f.name === 'Bounty Hunter Dedication')!;
+    build.choices.push({ level: 1, slot: 'classFeat', id: dedication.id });
+    // Survival ya entrenada por otra vía.
+    build.trainedSkills = [...build.trainedSkills, 'survival'];
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.skills.find((s) => s.slug === 'survival')!.rank).toBe(2);
+    expect(sheet.warnings.some((w) => /reentrenar/i.test(w.text ?? String(w)))).toBe(false);
+  });
+});
+
+describe('elecciones que abren los rasgos', () => {
+  const enano = () => {
+    const build = emptyBuild();
+    build.level = 1;
+    build.ancestry = 'dwarf';
+    build.class = 'fighter';
+    return build;
+  };
+
+  it('el Clan Dagger ofrece daga o pistola, con el nombre del objeto real', () => {
+    const sheet = computeCharacter(enano(), emptyState(), content);
+    const eleccion = sheet.eleccionesDeRasgos.find((e) => e.itemName === 'Clan Dagger')!;
+
+    expect(eleccion.opciones.map((o) => o.etiqueta).sort()).toEqual(['Clan Dagger', 'Clan Pistol']);
+    expect(eleccion.elegido).toBeNull();
+  });
+
+  it('avisa mientras no elijas', () => {
+    const sheet = computeCharacter(enano(), emptyState(), content);
+    expect(sheet.warnings.some((w) => /Falta elegir el arma/i.test(w.text ?? String(w)))).toBe(true);
+  });
+
+  it('sin elegir NO otorga ninguna de las dos, en vez de otorgar las dos', () => {
+    // Antes se descartaba el predicado y se aplicaban los dos GrantItem.
+    const sheet = computeCharacter(enano(), emptyState(), content);
+    const nombres = sheet.features.map((f) => f.name);
+    expect(nombres.filter((n) => n === 'Clan Dagger' || n === 'Clan Pistol').length).toBeLessThan(2);
+  });
+
+  it('elegida, el arma queda en el inventario y se puede empuñar', () => {
+    const build = enano();
+    const base = computeCharacter(build, emptyState(), content);
+    const eleccion = base.eleccionesDeRasgos.find((e) => e.itemName === 'Clan Dagger')!;
+    const pistola = eleccion.opciones.find((o) => o.etiqueta === 'Clan Pistol')!;
+
+    build.featureChoices = { [eleccion.itemId]: pistola.valor };
+    build.inventory = [{ id: pistola.itemId, quantity: 1, equipped: true, grantedBy: eleccion.itemId }];
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.strikes.some((s) => s.name === 'Clan Pistol')).toBe(true);
+    expect(sheet.warnings.some((w) => /Falta elegir el arma/i.test(w.text ?? String(w)))).toBe(false);
+  });
+});
+
+describe('lo que otorgan la herencia y el trasfondo', () => {
+  const enanoDeputy = () => {
+    const build = emptyBuild();
+    build.level = 1;
+    build.ancestry = 'dwarf';
+    build.class = 'gunslinger';
+    build.heritage = heritages.find((h) => h.name === 'Anvil Dwarf')!.id;
+    build.background = backgrounds.find((b) => b.slug === 'deputy')!.slug;
+    return build;
+  };
+
+  it('la herencia otorga su dote: Anvil Dwarf da Specialty Crafting', () => {
+    const sheet = computeCharacter(enanoDeputy(), emptyState(), content);
+    expect(sheet.features.map((f) => f.name)).toContain('Specialty Crafting');
+  });
+
+  it('el pack la trae DUPLICADA y se otorga una sola vez', () => {
+    const anvil = heritages.find((h) => h.name === 'Anvil Dwarf')!;
+    const grants = anvil.rules.filter((r) => r.key === 'GrantItem');
+    expect(grants).toHaveLength(2);
+    expect(grants[0].id).toBe(grants[1].id);
+
+    const sheet = computeCharacter(enanoDeputy(), emptyState(), content);
+    expect(sheet.features.filter((f) => f.name === 'Specialty Crafting')).toHaveLength(1);
+  });
+
+  it('el trasfondo otorga su dote: Deputy da Experienced Tracker', () => {
+    const sheet = computeCharacter(enanoDeputy(), emptyState(), content);
+    // Va como rasgo otorgado, no como dote elegida: viene con el trasfondo y
+    // no se puede sacar sin cambiar de trasfondo.
+    expect(sheet.features.map((f) => f.name)).toContain('Experienced Tracker');
+  });
+
+  it('avisa si quedan habilidades libres de clase sin elegir', () => {
+    const sheet = computeCharacter(enanoDeputy(), emptyState(), content);
+    expect(sheet.skillsDeClase.total).toBeGreaterThan(0);
+    expect(sheet.warnings.some((w) => /habilidad\(es\) entrenada\(s\) de clase/i.test(w.text ?? String(w)))).toBe(true);
+  });
+
+  it('el rasgo dice qué arma elegiste, no solo cómo se llama el rasgo', () => {
+    const build = enanoDeputy();
+    const previo = computeCharacter(build, emptyState(), content);
+    const eleccion = previo.eleccionesDeRasgos.find((e) => e.itemName === 'Clan Dagger')!;
+    const pistola = eleccion.opciones.find((o) => /Pistol/.test(o.etiqueta))!;
+    build.featureChoices = { [eleccion.itemId]: pistola.valor };
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.features.map((f) => f.name)).toContain('Clan Dagger (Clan Pistol)');
+  });
+});
+
+describe('elecciones de rasgos, en general', () => {
+  const conDote = (nombre: string) => {
+    const build = humanFighter(4);
+    const dote = feats.find((f) => f.name === nombre)!;
+    build.choices.push({ level: 1, slot: 'classFeat', id: dote.id });
+    return { build, dote };
+  };
+
+  it('Skill Training pide una habilidad y la entrena cuando la elegís', () => {
+    const { build, dote } = conDote('Skill Training');
+
+    const antes = computeCharacter(build, emptyState(), content);
+    const eleccion = antes.eleccionesDeRasgos.find((e) => e.itemName === 'Skill Training')!;
+    expect(eleccion.tipo).toBe('habilidad');
+    expect(eleccion.opciones.length).toBe(16);
+    // Las etiquetas salen legibles, no como clave de Foundry.
+    expect(eleccion.opciones.map((o) => o.etiqueta)).toContain('Occultism');
+    expect(antes.warnings.some((w) => /habilidad de Skill Training/i.test(w.text ?? String(w)))).toBe(true);
+
+    build.featureChoices = { [dote.id]: 'occultism' };
+    const despues = computeCharacter(build, emptyState(), content);
+    expect(despues.skills.find((s) => s.slug === 'occultism')!.rank).toBe(1);
+    expect(despues.warnings.some((w) => /habilidad de Skill Training/i.test(w.text ?? String(w)))).toBe(false);
+  });
+
+  it('Specialty Crafting pide un valor suelto, no una habilidad ni un objeto', () => {
+    const { build } = conDote('Specialty Crafting');
+    const sheet = computeCharacter(build, emptyState(), content);
+    const eleccion = sheet.eleccionesDeRasgos.find((e) => e.itemName === 'Specialty Crafting')!;
+
+    expect(eleccion.tipo).toBe('valor');
+    expect(eleccion.opciones.map((o) => o.etiqueta)).toContain('Blacksmithing');
+  });
+
+  it('el arma del Clan Dagger sigue siendo de tipo objeto', () => {
+    const build = emptyBuild();
+    build.level = 1;
+    build.ancestry = 'dwarf';
+    build.class = 'fighter';
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    const eleccion = sheet.eleccionesDeRasgos.find((e) => e.itemName === 'Clan Dagger')!;
+    expect(eleccion.tipo).toBe('objeto');
+    expect(eleccion.opciones.every((o) => o.itemId)).toBe(true);
+  });
+
+  it('no pregunta por las elecciones que no mueven ningún número', () => {
+    // De 228 ChoiceSets del pack, la mayoría son de sabor: preguntar por todas
+    // convertiría la hoja en un formulario.
+    const { build } = conDote('Canny Acumen');
+    const sheet = computeCharacter(build, emptyState(), content);
+    const total = sheet.eleccionesDeRasgos.length;
+    expect(total).toBeLessThan(4);
+  });
+
+  it('una dote puede resolver la elección de otro rasgo', () => {
+    const build = emptyBuild();
+    build.level = 1;
+    build.ancestry = 'dwarf';
+    build.class = 'fighter';
+    const pistola = feats.find((f) => f.name === 'Clan Pistol')!;
+    build.choices.push({ level: 1, slot: 'ancestryFeat', id: pistola.id });
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    const eleccion = sheet.eleccionesDeRasgos.find((e) => e.itemName === 'Clan Dagger')!;
+    expect(eleccion.decididoPor).toBe('Clan Pistol');
+    expect(eleccion.elegido).toBeTruthy();
+  });
+});
+
+describe('elecciones que la app no sabe ofrecer', () => {
+  it('avisa igual, en vez de perderlas en silencio', () => {
+    // Advanced General Training: "elegí una dote general de nivel 7 o menos".
+    // El pack lo declara como un filtro sobre todo el pack de dotes.
+    const build = humanFighter(8);
+    const dote = feats.find((f) => f.name === 'Advanced General Training')!;
+    build.choices.push({ level: 7, slot: 'generalFeat', id: dote.id });
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.warnings.some((w) => /Advanced General Training te hace elegir una dote/i.test(w.text ?? String(w)))).toBe(
+      true,
+    );
+  });
+
+  it('dice sobre QUÉ se elige cuando el pack lo sabe', () => {
+    const adoptada = feats.find((f) => f.name === 'Adopted Ancestry')!;
+    const build = humanFighter(4);
+    build.choices.push({ level: 1, slot: 'ancestryFeat', id: adoptada.id });
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.warnings.some((w) => /elegir una ancestría/i.test(w.text ?? String(w)))).toBe(true);
+  });
+
+  it('un personaje sin elecciones abiertas no recibe ninguno de estos avisos', () => {
+    const sheet = computeCharacter(humanFighter(), emptyState(), content);
+    expect(sheet.warnings.some((w) => /todavía no sabe ofrecer esa lista/i.test(w.text ?? String(w)))).toBe(false);
   });
 });

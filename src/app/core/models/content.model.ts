@@ -46,6 +46,13 @@ export interface RuleElement {
   choices?: { label: string; id: string }[] | null;
   /** Elecciones dinamicas: las opciones son los items que tengan estos tags. */
   filterTags?: string[] | null;
+  /**
+   * Elección que la app no sabe resolver: el filtro es un mini lenguaje de
+   * predicados sobre otro pack entero. Se avisa, no se ofrece.
+   */
+  abierta?: boolean;
+  /** Sobre qué se elige, cuando el pack lo dice: 'feat', 'ancestry'… */
+  tipoDeItem?: string;
   /** FlatModifier: condiciones bajo las que aplica (ej. `["perception"]` en iniciativa). */
   predicate?: string[];
   /** Proficiency: path tipo `proficiencies.attacks.simple-firearms-crossbows`. */

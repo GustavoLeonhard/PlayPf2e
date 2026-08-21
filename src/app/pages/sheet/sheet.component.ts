@@ -12,7 +12,7 @@ import {
   type NaturalWeapon,
 } from '../../core/models/character.model';
 import { ABILITIES, ABILITY_NAMES, PROFICIENCY_NAMES } from '../../core/models/content.model';
-import type { Ability, Equipment, Feat, ProficiencyRank, Spell } from '../../core/models/content.model';
+import type { Ability, Deity, Equipment, Feat, ProficiencyRank, Spell } from '../../core/models/content.model';
 import { archetypeFeatAvailable, isArchetypeFeat, ownedDedications } from '../../core/rules/archetypes';
 import { CONDITION_BY_ID } from '../../core/rules/conditions';
 import { criticalTotal, rollFormula, type DiceRoll } from '../../core/rules/dice';
@@ -22,8 +22,9 @@ import { recorteCuadrado } from '../../core/rules/imagen';
 import { formatCp, priceToCp, splitCp } from '../../core/rules/money';
 import { castableRanks, scaledDamage } from '../../core/rules/spellcasting';
 import { SKILLS } from '../../core/rules/tables';
-import { computeCharacter, type ContentIndex, type FeatSource, type StrikeSheet } from '../../core/rules/character.engine';
+import { computeCharacter, slug, type ContentIndex, type FeatSource, type StrikeSheet } from '../../core/rules/character.engine';
 import { avisosDe, esAplicable, nombreCorto, selectoresDe, valorDe, type Effect } from '../../core/rules/efectos';
+import type { EleccionDeRasgo, OpcionDeEleccion } from '../../core/rules/elecciones';
 import { efectoAMano, seCalcula } from '../../core/rules/efectos-a-mano';
 import { RAGE_SLUG, rageSheet } from '../../core/rules/rabia';
 import { signed, type Stat } from '../../core/rules/modifiers';
@@ -55,8 +56,14 @@ export interface RollResult {
   modifier: number;
   total: number;
   crit: 'success' | 'failure' | null;
-  /** Daño ya tirado junto con el ataque, más el total si fuese crítico. */
-  damage?: { detail: string; total: number; critical: number; type: string };
+  /**
+   * Daño ya tirado junto con el ataque, más el total si fuese crítico.
+   *
+   * El detalle del crítico va aparte del normal: no es el mismo cálculo —fatal
+   * cambia el tamaño del dado y deadly suma uno extra— y verlos mezclados en un
+   * renglón no dejaba entender de dónde salía cada número.
+   */
+  damage?: { detail: string; total: number; critical: number; criticalDetail: string; type: string };
   /** Para conjuros de salvación: no hay ataque, se muestra la CD. */
   dc?: number;
   save?: string;
@@ -97,6 +104,10 @@ export class SheetComponent implements OnInit {
 
   readonly openBreakdown = signal<string | null>(null);
   readonly showAcknowledged = signal(false);
+  /** Los boosts son doce filas que casi nunca se tocan: van escondidas. */
+  readonly editandoBoosts = signal(false);
+  /** Lo mismo con las elecciones de habilidad: se tocan al crear, no jugando. */
+  readonly editandoSkills = signal(false);
   readonly lastRoll = signal<RollResult | null>(null);
   readonly showConditions = signal(false);
   /** Las advertencias arrancan abiertas, pero se pueden plegar y sacarlas del medio. */
@@ -158,6 +169,7 @@ export class SheetComponent implements OnInit {
     void this.content.spells().then((s) => this.spellList.set(s));
     void this.content.conditions().then((c) => this.conditionList.set(c));
     void this.content.effects().then((e) => this.effectList.set(e));
+    void this.content.deities().then((d) => this.deityList.set(d));
     this.index.set(index);
     const record = await this.characters.get(this.id());
     if (record) {
@@ -196,6 +208,12 @@ export class SheetComponent implements OnInit {
    * siempre, aunque estén vacías: son editables, y si se ocultan hasta tener
    * algo no hay dónde apretar "+ Agregar".
    */
+  /** Cuántos rasgos y dotes hay en total, para el subtítulo de la sección. */
+  readonly totalDeDotes = computed(() => {
+    const n = this.featGroups().reduce((suma, g) => suma + g.items.length, 0);
+    return n ? `${n}` : '';
+  });
+
   readonly featGroups = computed(() => {
     const sheet = this.sheet();
     if (!sheet) return [];
@@ -448,6 +466,236 @@ export class SheetComponent implements OnInit {
   esAbilityManual = (ability: Ability): boolean =>
     this.record()?.build.abilityOverrides?.[ability] !== undefined;
 
+  readonly eleccionesSubtitulo = computed(() => {
+    const faltan = (this.sheet()?.eleccionesDeRasgos ?? []).filter((e) => !e.elegido).length;
+    return faltan ? `${faltan} sin elegir` : '';
+  });
+
+  // --------------------------------------------- elecciones de objeto
+
+  /**
+   * Elegir el arma que otorga un rasgo (el Clan Dagger de los enanos).
+   *
+   * El objeto entra al inventario de verdad, marcado con `grantedBy`, para que
+   * se pueda equipar y aparezca entre los ataques como cualquier otra arma. Al
+   * cambiar la elección se cambia ese objeto y solo ese: lo que compraste vos
+   * no se toca.
+   */
+  async setFeatureChoice(eleccion: EleccionDeRasgo, opcion: OpcionDeEleccion) {
+    const record = this.record();
+    if (!record) return;
+
+    record.build.featureChoices = { ...(record.build.featureChoices ?? {}), [eleccion.itemId]: opcion.valor };
+
+    /*
+     * Si la elección otorga un objeto, entra al inventario marcado con
+     * `grantedBy`: así se equipa y se tira como cualquier arma, y cambiar la
+     * elección cambia ESE objeto y solo ese. Las de habilidad y las de valor
+     * suelto no tocan la mochila: las lee el motor desde la elección.
+     */
+    if (opcion.itemId) {
+      record.build.inventory = [
+        ...record.build.inventory.filter((i) => i.grantedBy !== eleccion.itemId),
+        { id: opcion.itemId, quantity: 1, equipped: true, grantedBy: eleccion.itemId },
+      ];
+    }
+
+    await this.guardar(record);
+  }
+
+  /** Igual, pero desde un desplegable: hay que buscar la opción por su valor. */
+  async setFeatureChoicePorValor(eleccion: EleccionDeRasgo, valor: string) {
+    const opcion = eleccion.opciones.find((o) => o.valor === valor);
+    if (opcion) await this.setFeatureChoice(eleccion, opcion);
+  }
+
+  // --------------------------------------------- habilidades de clase
+
+  /**
+   * Marcar una habilidad como entrenada por la elección libre de clase.
+   *
+   * Es distinto de pisar el rango a mano: esto gasta una de las que te tocan y
+   * se ve en el contador, así que el personaje queda bien armado y no parcheado.
+   */
+  async toggleSkillDeClase(slug: string) {
+    const record = this.record();
+    if (!record) return;
+
+    const actuales = record.build.trainedSkills;
+    record.build.trainedSkills = actuales.includes(slug)
+      ? actuales.filter((s) => s !== slug)
+      : [...actuales, slug];
+    await this.guardar(record);
+  }
+
+  esSkillDeClase = (slug: string) => !!this.record()?.build.trainedSkills.includes(slug);
+
+  /** Cuántas decisiones de habilidad quedan sin tomar, para el aviso del botón. */
+  readonly eleccionesDeSkillPendientes = computed(() => {
+    const sinHerencia = this.heritageSkillChoices().length && !this.record()?.build.heritageSkill ? 1 : 0;
+    const libres = this.skillsLibres().filter((l) => !l.elegida).length;
+    return sinHerencia + libres + Math.max(0, this.skillsDeClaseLibres());
+  });
+
+  readonly skillsDeClaseLibres = computed(() => {
+    const c = this.sheet()?.skillsDeClase;
+    return c ? c.total - c.usadas : 0;
+  });
+
+  // ------------------------------------------------------------- lores
+
+  /**
+   * Lores escritos a mano. Additional Lore no trae lista en el pack: el nombre
+   * lo inventa el jugador ("Circus Lore"), así que es un campo de texto.
+   */
+  async agregarLore(nombre: string) {
+    const record = this.record();
+    const limpio = nombre.trim();
+    if (!record || !limpio) return;
+
+    record.build.extraLores = [...(record.build.extraLores ?? []), limpio];
+    await this.guardar(record);
+  }
+
+  async quitarLore(nombre: string) {
+    const record = this.record();
+    if (!record) return;
+    record.build.extraLores = (record.build.extraLores ?? []).filter((l) => l !== nombre);
+    await this.guardar(record);
+  }
+
+  readonly extraLores = computed(() => this.record()?.build.extraLores ?? []);
+
+  /**
+   * Si ese Lore lo escribió el jugador, devuelve el texto tal como lo escribió
+   * (que es lo que hay que pasarle a `quitarLore`). Los del trasfondo no se
+   * pueden quitar: vienen con el trasfondo.
+   */
+  loreManual(clave: string): string | null {
+    const sinPrefijo = clave.replace(/^lore:/, '');
+    // Se usa el slug DEL MOTOR: si acá se armara distinto, las claves no
+    // coincidirían y el botón no aparecería nunca.
+    return this.extraLores().find((l) => slug(l) === sinPrefijo) ?? null;
+  }
+
+  // ------------------------------------------------------ boosts a mano
+
+  /**
+   * Los boosts que el personaje tiene que elegir, con lo que eligió.
+   *
+   * Solo los que son una ELECCIÓN: un set de un solo atributo no se elige, se
+   * aplica. Los libres de nivel 1 son cuatro y van entre los seis atributos.
+   */
+  readonly boostSets = computed(() => {
+    const record = this.record();
+    const index = this.index();
+    if (!record || !index) return [];
+
+    const build = record.build;
+    const ancestry = build.ancestry ? index.ancestryBySlug.get(build.ancestry) : null;
+    const background = build.background ? index.backgroundBySlug.get(build.background) : null;
+    const pf2class = build.class ? index.classBySlug.get(build.class) : null;
+
+    type Fila = {
+      clave: string;
+      label: string;
+      grupo: 'ancestry' | 'background' | 'class' | 'level1';
+      indice: number;
+      opciones: Ability[];
+      elegido: Ability | undefined;
+    };
+    const filas: Fila[] = [];
+
+    (ancestry?.boosts ?? [])
+      .filter((set) => set.length > 1)
+      .forEach((set, i) =>
+        filas.push({
+          clave: `anc${i}`,
+          label: `Ancestría ${i + 1}`,
+          grupo: 'ancestry',
+          indice: i,
+          opciones: set,
+          elegido: build.abilityBoosts.ancestry[i],
+        }),
+      );
+
+    (background?.boosts ?? [])
+      .filter((set) => set.length > 1)
+      .forEach((set, i) =>
+        filas.push({
+          clave: `bg${i}`,
+          label: `Trasfondo ${i + 1}`,
+          grupo: 'background',
+          indice: i,
+          opciones: set,
+          elegido: build.abilityBoosts.background[i],
+        }),
+      );
+
+    if ((pf2class?.keyAbility.length ?? 0) > 1) {
+      filas.push({
+        clave: 'clase',
+        label: 'Atributo clave',
+        grupo: 'class',
+        indice: 0,
+        opciones: pf2class!.keyAbility,
+        elegido: build.abilityBoosts.class[0],
+      });
+    }
+
+    // Los cuatro libres de nivel 1: cada uno es una fila con las seis opciones.
+    for (let i = 0; i < 4; i++) {
+      filas.push({
+        clave: `libre${i}`,
+        label: `Libre de nivel 1 (${i + 1}/4)`,
+        grupo: 'level1',
+        indice: i,
+        opciones: [...ABILITIES],
+        elegido: build.abilityBoosts.level1[i],
+      });
+    }
+
+    return filas;
+  });
+
+  async setBoost(grupo: 'ancestry' | 'background' | 'class' | 'level1', indice: number, ability: Ability) {
+    const record = this.record();
+    if (!record) return;
+
+    const lista = [...record.build.abilityBoosts[grupo]];
+    // Volver a tocar el mismo lo saca: es la forma de deshacer sin otro botón.
+    lista[indice] = lista[indice] === ability ? (undefined as unknown as Ability) : ability;
+    record.build.abilityBoosts = { ...record.build.abilityBoosts, [grupo]: lista };
+    await this.guardar(record);
+  }
+
+  // ------------------------------------------------------ nombre y deidad
+
+  async setNombre(valor: string) {
+    const record = this.record();
+    const limpio = valor.trim();
+    // Un nombre vacío dejaría la hoja sin título; se ignora y el template
+    // vuelve a pintar el anterior.
+    if (!record || !limpio || limpio === record.build.name) return;
+
+    record.build.name = limpio;
+    record.name = limpio;
+    await this.guardar(record);
+  }
+
+  readonly deityList = signal<Deity[]>([]);
+
+  readonly deityOptions = computed(() =>
+    [...this.deityList()].sort((a, b) => a.name.localeCompare(b.name)),
+  );
+
+  async setDeidad(id: string) {
+    const record = this.record();
+    if (!record) return;
+    record.build.deity = id || null;
+    await this.guardar(record);
+  }
+
   // ------------------------------------------------- skill de la herencia
 
   /**
@@ -574,7 +822,11 @@ export class SheetComponent implements OnInit {
   readonly agregandoDote = signal<FeatSource | null>(null);
   readonly doteSearch = signal('');
 
-  private static readonly SLOT_DE_SOURCE: Record<FeatSource, ChoiceSlot> = {
+  /*
+   * Con qué slot se agrega una dote de cada grupo. El trasfondo no está: sus
+   * dotes vienen con el trasfondo y no se agregan ni se sacan a mano.
+   */
+  private static readonly SLOT_DE_SOURCE: Partial<Record<FeatSource, ChoiceSlot>> = {
     ancestry: 'ancestryFeat',
     class: 'classFeat',
     skill: 'skillFeat',
@@ -584,6 +836,9 @@ export class SheetComponent implements OnInit {
 
   static readonly LABEL_DE_SOURCE: Record<FeatSource, string> = {
     ancestry: 'Ancestría',
+    // El trasfondo también otorga dotes (Deputy da Experienced Tracker) y no
+    // tenía dónde caer: iban a parar a la nada.
+    background: 'Trasfondo',
     class: 'Clase',
     skill: 'Habilidad',
     general: 'Generales',
@@ -677,7 +932,11 @@ export class SheetComponent implements OnInit {
     const record = this.record();
     if (!record || !featId) return;
 
-    const choice: Choice = { level: record.build.level, slot: SheetComponent.SLOT_DE_SOURCE[source], id: featId };
+    const slot = SheetComponent.SLOT_DE_SOURCE[source];
+    // Las del trasfondo no se agregan a mano: no tienen slot.
+    if (!slot) return;
+
+    const choice: Choice = { level: record.build.level, slot, id: featId };
     record.build.choices = [...record.build.choices, choice];
     this.agregandoDote.set(null);
     this.doteModal.set(null);
@@ -763,20 +1022,18 @@ export class SheetComponent implements OnInit {
     const totalNormal = normal.total + mods;
 
     let critico = totalNormal * 2;
-    const detalles: string[] = [];
+    let detalleCritico = `(${normal.detail}${mods ? ' ' + signed(mods) : ''}) ×2`;
 
     if (strike.fatal && dados) {
       // Se vuelve a tirar con el dado grande: es lo que hace fatal.
       const conFatal = rollFormula(`${dados[1]}${strike.fatal}`);
       const extra = rollFormula(`1${strike.fatal}`);
       critico = (conFatal.total + mods) * 2 + extra.total;
-      detalles.push(
-        `crítico con fatal ${strike.fatal}: (${conFatal.total}${mods ? signed(mods) : ''}) ×2 + ${extra.total} del dado extra`,
-      );
+      detalleCritico = `fatal ${strike.fatal}: (${conFatal.detail}${mods ? ' ' + signed(mods) : ''}) ×2 + ${extra.detail} del dado extra`;
     } else if (strike.deadly) {
       const extra = rollFormula(`1${strike.deadly}`);
       critico += extra.total;
-      detalles.push(`crítico: ${totalNormal} ×2 + ${extra.total} de deadly ${strike.deadly}`);
+      detalleCritico = `(${normal.detail}${mods ? ' ' + signed(mods) : ''}) ×2 + ${extra.detail} de deadly ${strike.deadly}`;
     }
 
     this.lastRoll.set({
@@ -786,9 +1043,10 @@ export class SheetComponent implements OnInit {
       total: die + strike.attack.total + map,
       crit: die === 20 ? 'success' : die === 1 ? 'failure' : null,
       damage: {
-        detail: [`${normal.detail}${mods ? ' ' + signed(mods) : ''}`, ...detalles].filter(Boolean).join(' · '),
+        detail: `${normal.detail}${mods ? ' ' + signed(mods) : ''}`,
         total: totalNormal,
         critical: critico,
+        criticalDetail: detalleCritico,
         type: strike.damageType,
       },
     });
@@ -1000,6 +1258,8 @@ export class SheetComponent implements OnInit {
         detail: rolls.map((r) => r.detail).join(' + '),
         total,
         critical: criticalTotal({ formula: '', total, detail: '' }),
+        // Un conjuro no tiene fatal ni deadly: el crítico es el doble y ya.
+        criticalDetail: `${total} ×2`,
         // Un hechizo puede traer varias entradas del mismo tipo (Acid Splash trae
         // el daño principal y el de salpicadura): se muestra el tipo una sola vez.
         type: [...new Set(damageParts.map((d) => d.type).filter(Boolean))].join('/'),

@@ -14,7 +14,15 @@
       </div>
 
       <div class="pjhead-datos">
-        <h1>{{ s.name }}</h1>
+        <!-- Editable en el lugar: un nombre mal escrito no debería obligar a
+             rehacer el personaje. -->
+        <h1
+          class="nombre-editable"
+          contenteditable="plaintext-only"
+          title="Cambiar el nombre"
+          (blur)="setNombre($any($event.target).innerText)"
+          (keydown.enter)="$any($event.target).blur(); $event.preventDefault()"
+        >{{ s.name }}</h1>
         <p class="muted">
           {{ s.ancestryName }} {{ s.heritageName !== '—' ? '(' + s.heritageName + ')' : '' }} · {{ s.className }} ·
           {{ s.backgroundName }}
@@ -24,6 +32,14 @@
           @if (s.deity; as d) {
             · devoto de <strong>{{ d.name }}</strong>
           }
+          <!-- La deidad se cambia: un clérigo puede cambiar de fe, y al crear
+               el PJ es fácil elegir la equivocada. -->
+          <select class="deidad-select" [value]="record()?.build?.deity ?? ''" (change)="setDeidad($any($event.target).value)">
+            <option value="">Sin deidad</option>
+            @for (d of deityOptions(); track d.id) {
+              <option [value]="d.id" [selected]="d.id === record()?.build?.deity">{{ d.name }}</option>
+            }
+          </select>
         </p>
         @if (s.deity; as d) {
           <p class="muted deity-line">
@@ -433,6 +449,55 @@
         </div>
       </app-accordion>
 
+      <!--
+        Todo lo que un rasgo te hace elegir. Hoy son las armas de ancestría (el
+        Clan Dagger de los enanos); es el lugar donde van a ir las que aparezcan
+        al subir de nivel, para no repartirlas por la hoja.
+      -->
+      @if (s.eleccionesDeRasgos.length) {
+        <app-accordion titulo="Elecciones de rasgos" [subtitulo]="eleccionesSubtitulo()">
+          <div class="elecciones-lista">
+            @for (eleccion of s.eleccionesDeRasgos; track eleccion.itemId + eleccion.tipo) {
+              <div class="eleccion-fila" [class.pendiente]="!eleccion.elegido">
+                <span class="eleccion-nombre">{{ eleccion.itemName }}</span>
+
+                <!--
+                  Pocas opciones entran como chips; muchas (las 16 habilidades)
+                  no, y ahí un desplegable se lee mejor que cuatro renglones.
+                -->
+                @if (eleccion.opciones.length <= 4) {
+                  <span class="opts">
+                    @for (op of eleccion.opciones; track op.valor) {
+                      <button
+                        class="chip"
+                        [class.on]="eleccion.elegido === op.valor"
+                        (click)="setFeatureChoice(eleccion, op)"
+                      >
+                        {{ op.etiqueta }}
+                      </button>
+                    }
+                  </span>
+                } @else {
+                  <select
+                    [value]="eleccion.elegido ?? ''"
+                    (change)="setFeatureChoicePorValor(eleccion, $any($event.target).value)"
+                  >
+                    <option value="">Elegí una…</option>
+                    @for (op of eleccion.opciones; track op.valor) {
+                      <option [value]="op.valor" [selected]="op.valor === eleccion.elegido">{{ op.etiqueta }}</option>
+                    }
+                  </select>
+                }
+
+                @if (eleccion.decididoPor; as dote) {
+                  <small class="muted">la decide {{ dote }}</small>
+                }
+              </div>
+            }
+          </div>
+        </app-accordion>
+      }
+
       <app-accordion titulo="Efectos" [subtitulo]="efectosSubtitulo()" class="efectos-tab">
         <div class="efectos-lista">
           @for (x of effectsEnLista(); track x.efecto.id) {
@@ -499,6 +564,37 @@
       </app-accordion>
 
       <app-accordion titulo="Atributos">
+        <!--
+          Los boosts se corrigen acá, pero escondidos: son doce filas que casi
+          nunca se tocan, y arriba de los atributos estorbaban todo el tiempo.
+        -->
+        @if (boostSets().length) {
+          <button acc-extra class="btn ghost" (click)="editandoBoosts.set(!editandoBoosts())">
+            {{ editandoBoosts() ? 'Ocultar boosts' : 'Editar boosts' }}
+          </button>
+        }
+
+        @if (boostSets().length && editandoBoosts()) {
+          <div class="boosts">
+            @for (set of boostSets(); track set.clave) {
+              <div class="boost-fila" [class.pendiente]="!set.elegido">
+                <span class="boost-label muted">{{ set.label }}</span>
+                <span class="opts">
+                  @for (ab of set.opciones; track ab) {
+                    <button
+                      class="chip"
+                      [class.on]="set.elegido === ab"
+                      (click)="setBoost(set.grupo, set.indice, ab)"
+                    >
+                      {{ abilityNames[ab] }}
+                    </button>
+                  }
+                </span>
+              </div>
+            }
+          </div>
+        }
+
         <div class="fila tiradas">
       @for (ab of abilityList; track ab) {
         <div class="card stat-big">
@@ -545,54 +641,94 @@
 
       <app-accordion titulo="Habilidades">
         <!--
-          La skill que promete la herencia se elige al crear el PJ, pero también
-          hay que poder cambiarla acá: es una decisión más, como el resto.
+          Todo lo que se ELIGE va detrás de un botón: se toca al crear el PJ o
+          cuando quedó algo sin elegir, no durante la partida. Igual que los
+          boosts. El botón avisa si falta algo, para que no quede escondido.
         -->
-        @if (heritageSkillChoices().length) {
-          <label class="eleccion-skill">
-            Habilidad de la herencia
-            <select
-              [value]="record()?.build?.heritageSkill ?? ''"
-              (change)="setHeritageSkill($any($event.target).value)"
-            >
-              <option value="">Elegí una…</option>
-              @for (op of heritageSkillChoices(); track op.id) {
-                <!--
-                  Se avisa cuál ya tenés por otro lado: elegir esa no te suma
-                  nada, la regla te daría otra libre y es un rodeo al pedo.
-                -->
-                <option [value]="op.id" [selected]="op.id === record()?.build?.heritageSkill">
-                  {{ op.label }}{{ skillsYaEntrenadas()[op.id] ? ' — ya te la da ' + skillsYaEntrenadas()[op.id] : '' }}
-                </option>
-              }
-            </select>
-            <small class="muted">Entrenado, y experto a partir de nivel 5.</small>
-          </label>
-        }
+        <button acc-extra class="btn ghost" (click)="editandoSkills.set(!editandoSkills())">
+          {{ editandoSkills() ? 'Ocultar elecciones' : 'Elegir habilidades' }}
+          @if (eleccionesDeSkillPendientes() > 0) {
+            <span class="pendiente-pip">{{ eleccionesDeSkillPendientes() }}</span>
+          }
+        </button>
 
-        <!--
-          La regla del entrenamiento repetido: si algo te entrena en una skill
-          que ya tenías, elegís otra. Acá se saldan esas deudas.
-        -->
-        @for (libre of skillsLibres(); track libre.clave) {
-          <label class="eleccion-skill libre" [class.pendiente]="!libre.elegida">
-            Habilidad libre
-            <select
-              [value]="libre.elegida ?? ''"
-              (change)="setSkillLibre(libre.clave, $any($event.target).value)"
-            >
-              <option value="">Elegí una…</option>
-              @for (op of opcionesLibres(libre.clave); track op.id) {
-                <option [value]="op.id" [selected]="op.id === libre.elegida">{{ op.label }}</option>
-              }
-            </select>
-            <small class="muted">{{ libre.motivo }}.</small>
-          </label>
-        }
+        @if (editandoSkills()) {
+        <div class="skill-elecciones">
+          <!--
+            La skill que promete la herencia se elige al crear el PJ, pero también
+            hay que poder cambiarla acá: es una decisión más, como el resto.
+          -->
+          @if (heritageSkillChoices().length) {
+            <label class="eleccion-skill">
+              Habilidad de la herencia
+              <select
+                [value]="record()?.build?.heritageSkill ?? ''"
+                (change)="setHeritageSkill($any($event.target).value)"
+              >
+                <option value="">Elegí una…</option>
+                @for (op of heritageSkillChoices(); track op.id) {
+                  <!--
+                    Se avisa cuál ya tenés por otro lado: elegir esa no te suma
+                    nada, la regla te daría otra libre y es un rodeo al pedo.
+                  -->
+                  <option [value]="op.id" [selected]="op.id === record()?.build?.heritageSkill">
+                    {{ op.label }}{{ skillsYaEntrenadas()[op.id] ? ' — ya te la da ' + skillsYaEntrenadas()[op.id] : '' }}
+                  </option>
+                }
+              </select>
+              <small class="muted">Entrenado, y experto a partir de nivel 5.</small>
+            </label>
+          }
 
+          <!--
+            La regla del entrenamiento repetido: si algo te entrena en una skill
+            que ya tenías, elegís otra. Acá se saldan esas deudas.
+          -->
+          @for (libre of skillsLibres(); track libre.clave) {
+            <label class="eleccion-skill libre" [class.pendiente]="!libre.elegida">
+              Habilidad libre
+              <select
+                [value]="libre.elegida ?? ''"
+                (change)="setSkillLibre(libre.clave, $any($event.target).value)"
+              >
+                <option value="">Elegí una…</option>
+                @for (op of opcionesLibres(libre.clave); track op.id) {
+                  <option [value]="op.id" [selected]="op.id === libre.elegida">{{ op.label }}</option>
+                }
+              </select>
+              <small class="muted">{{ libre.motivo }}.</small>
+            </label>
+          }
+
+          <!--
+            Las libres de clase se eligen acá y no solo en el asistente: si
+            quedaron sin usar, el personaje tiene menos entrenadas de las que le
+            tocan y no habia forma de arreglarlo.
+          -->
+          @if (s.skillsDeClase.total) {
+            <p class="muted small libres-clase">
+              Habilidades de clase: {{ s.skillsDeClase.usadas }} de {{ s.skillsDeClase.total }} usadas.
+              @if (skillsDeClaseLibres() > 0) {
+                <strong>Te quedan {{ skillsDeClaseLibres() }} por elegir</strong> — marca el tilde de la que quieras.
+              }
+            </p>
+          }
+
+        </div>
+        }
         <div class="rejilla angosta">
         @for (sk of s.skills; track sk.slug) {
           <div class="skill-row" [class.untrained]="sk.rank === 0">
+            @if (editandoSkills() && s.skillsDeClase.total) {
+              <button
+                class="pick-clase"
+                [class.on]="esSkillDeClase(sk.slug)"
+                [title]="esSkillDeClase(sk.slug) ? 'Sacar de las libres de clase' : 'Entrenar con una libre de clase'"
+                (click)="toggleSkillDeClase(sk.slug)"
+              >
+                &#10003;
+              </button>
+            }
             <button
               class="star"
               [class.on]="isFavorite('skill', sk.slug)"
@@ -639,6 +775,14 @@
               (restablecer)="clearProficiency('skills', lo.slug)"
             />
             <button class="skill-mod" (click)="toggleBreakdown(lo.slug)">{{ signed(lo.stat.total) }}</button>
+            <!--
+              El quitar va en la fila del propio Lore, no en una lista aparte:
+              antes se pintaba dos veces —la fila completa y otra pelada sin
+              rango ni número— y la pelada parecía rota.
+            -->
+            @if (loreManual(lo.slug); as nombre) {
+              <button class="btn ghost quitar" title="Quitar este Lore" (click)="quitarLore(nombre)">×</button>
+            }
           </div>
           @if (openBreakdown() === lo.slug) {
             <div class="breakdown inline">
@@ -648,27 +792,48 @@
             </div>
           }
         }
+
+        <!--
+          Additional Lore y compañía no traen lista en el pack: el nombre del
+          Lore lo inventa el jugador. Por eso se escribe en vez de elegirse.
+        -->
+        <div class="agregar-lore">
+          <input
+            #nuevoLore
+            type="text"
+            placeholder="Agregar un Lore (Circus, Underworld…)"
+            (keydown.enter)="agregarLore(nuevoLore.value); nuevoLore.value = ''"
+          />
+          <button class="btn ghost" (click)="agregarLore(nuevoLore.value); nuevoLore.value = ''">agregar</button>
+        </div>
         </div>
       </app-accordion>
 
-      <app-accordion titulo="Rasgos y dotes">
-        <div class="rejilla">
+      <app-accordion titulo="Rasgos y dotes" [subtitulo]="totalDeDotes()">
+        <!--
+          Un acordeón por origen: en una rejilla de seis columnas las dotes
+          quedaban apretadas y no se leía ninguna. Cada uno recuerda si lo
+          dejaste abierto, igual que las secciones de afuera.
+        -->
+        <div class="feat-grupos">
         @for (grupo of featGroups(); track grupo.key) {
-          <div class="feat-group">
-            <h3 class="muted">{{ grupo.label }}</h3>
+          <app-accordion
+            [titulo]="grupo.label"
+            [subtitulo]="grupo.items.length ? grupo.items.length + '' : ''"
+            [inicial]="false"
+            class="feat-group"
+          >
             @for (f of grupo.items; track f.name + f.level) {
               <div class="feat-row">
-                <span [class.accent]="f.esDote">
-                  {{ f.name }}
-                  @if (fichas().get((f.esDote ? 'dote:' : 'rasgo:') + f.id); as ficha) {
-                    <button class="info" title="Ver la descripción" (click)="verFicha((f.esDote ? 'dote:' : 'rasgo:') + f.id)">
-                      ⓘ
-                    </button>
-                  }
-                </span>
-                <span class="muted">nv {{ f.level }}</span>
+                <span class="feat-nombre" [class.accent]="f.esDote">{{ f.name }}</span>
+                @if (fichas().get((f.esDote ? 'dote:' : 'rasgo:') + f.id); as ficha) {
+                  <button class="info" title="Ver la descripción" (click)="verFicha((f.esDote ? 'dote:' : 'rasgo:') + f.id)">
+                    ⓘ
+                  </button>
+                }
+                <span class="muted feat-nivel">nv {{ f.level }}</span>
                 @if (f.esDote) {
-                  <button class="rank-btn" title="Sacar esta dote" (click)="quitarDote(f)">quitar</button>
+                  <button class="btn ghost quitar" title="Sacar esta dote" (click)="quitarDote(f)">quitar</button>
                 }
               </div>
             } @empty {
@@ -732,10 +897,11 @@
                 }
                 <button class="btn ghost" (click)="agregandoDote.set(null); doteSearch.set('')">Cerrar</button>
               </div>
-            } @else {
+            } @else if (grupo.key !== 'background') {
+              <!-- Las del trasfondo vienen con el trasfondo: no se agregan. -->
               <button class="btn ghost" (click)="agregandoDote.set(grupo.key)">+ Agregar</button>
             }
-          </div>
+          </app-accordion>
         }
         </div>
       </app-accordion>
@@ -2000,6 +2166,10 @@
       <button class="close" (click)="lastRoll.set(null)">×</button>
       <span class="r-label">{{ r.label }}</span>
 
+      <!--
+        Cada número grande con su desglose justo debajo. Antes el daño y el
+        crítico compartían renglón con su detalle y no se sabía qué explicaba qué.
+      -->
       @if (r.die) {
         <span class="r-total">{{ r.total }}</span>
         <span class="r-detail muted">d20 ({{ r.die }}) {{ signed(r.modifier) }}</span>
@@ -2009,11 +2179,11 @@
       }
 
       @if (r.damage; as dmg) {
-        <span class="r-damage">
-          {{ dmg.total }} de daño{{ dmg.type ? ' ' + dmg.type : '' }}
-          <small class="muted">({{ dmg.detail }})</small>
-        </span>
-        <span class="r-crit-damage muted">crítico: {{ dmg.critical }}</span>
+        <span class="r-total dano">Daño: {{ dmg.total }}{{ dmg.type ? ' ' + dmg.type : '' }}</span>
+        <span class="r-detail muted">{{ dmg.detail }}</span>
+
+        <span class="r-total dano critico">Daño crítico: {{ dmg.critical }}</span>
+        <span class="r-detail muted">{{ dmg.criticalDetail }}</span>
       }
       @if (r.crit === 'success') {
         <span class="r-crit">¡20 natural!</span>

@@ -12,9 +12,10 @@ import type {
   ProficiencyRank,
   RuleElement,
 } from '../models/content.model';
-import { ABILITIES, ABILITY_NAMES } from '../models/content.model';
+import { ABILITIES, ABILITY_NAMES, PROFICIENCY_NAMES } from '../models/content.model';
 import { conditionModifiers } from './conditions';
 import { effectModifiers, type Effect } from './efectos';
+import { eleccionesAbiertasDe, eleccionesDe, textoDeEleccion, type EleccionDeRasgo } from './elecciones';
 import { RAGE_SLUG, rageDamage, rageSheet, type RageSheet } from './rabia';
 import { buildStat, mod, type Modifier, type Stat } from './modifiers';
 import { evaluatePrerequisite, type PrerequisiteStatus } from './prerequisites';
@@ -184,6 +185,8 @@ export interface Proficiencies {
   skillsLibres?: SkillLibre[];
   /** Skills que entrena algo FIJO (clase, trasfondo, herencia), y de dónde. */
   skillsFijas?: Record<string, string>;
+  /** Aumentos repetidos de experto o mas, que se pierden. */
+  skillsRedundantes?: string[];
   /** Lores: clave `lore:<slug>`, con su nombre para mostrar. */
   lores: Record<string, { name: string; rank: ProficiencyRank }>;
   classDC: ProficiencyRank;
@@ -266,6 +269,11 @@ export interface CharacterSheet {
   classDC: Stat;
   skills: { slug: string; name: string; rank: ProficiencyRank; stat: Stat }[];
   /**
+   * Rasgos activos que te hacen elegir entre objetos (el Clan Dagger de los
+   * enanos: daga o pistola). Cada opción otorga un objeto del catálogo.
+   */
+  eleccionesDeRasgos: EleccionDeRasgo[];
+  /**
    * Habilidades libres ganadas por entrenamiento repetido, con el porqué.
    * Ver la regla en computeProficiencies.
    */
@@ -276,6 +284,8 @@ export interface CharacterSheet {
    * elección se desperdicia.
    */
   skillsFijas: Record<string, string>;
+  /** Habilidades libres de clase: cuántas te tocan y cuántas usaste. */
+  skillsDeClase: { total: number; usadas: number };
   /** Lores (Hunting Lore, Warfare Lore…): siempre basados en Inteligencia. */
   lores: { slug: string; name: string; rank: ProficiencyRank; stat: Stat }[];
   /**
@@ -412,7 +422,7 @@ export interface FocusSheet {
 }
 
 /** Como agrupa la hoja los rasgos y dotes. */
-export type FeatSource = 'ancestry' | 'class' | 'skill' | 'general' | 'bonus';
+export type FeatSource = 'ancestry' | 'class' | 'skill' | 'general' | 'bonus' | 'background';
 
 const FEAT_SOURCE_BY_SLOT: Record<string, FeatSource> = {
   classFeat: 'class',
@@ -439,7 +449,8 @@ export interface Warning {
 const upgrade = (current: ProficiencyRank, next: number): ProficiencyRank =>
   (next > current ? next : current) as ProficiencyRank;
 
-const slug = (text: string) =>
+/** Se exporta para que la hoja arme las mismas claves y no se desincronicen. */
+export const slug = (text: string) =>
   text
     .toLowerCase()
     .trim()
@@ -473,10 +484,17 @@ const rankFor = (prof: Proficiencies, keys: string[]): ProficiencyRank =>
  * tres packs (rasgos, acciones o dotes). Una dedication de arquetipo, por ejemplo,
  * otorga un rasgo de clase (Infused Reagents) y una dote (Alchemical Crafting).
  */
-function resolveGrants(items: { rules?: RuleElement[] }[], content: ContentIndex): ClassFeature[] {
-  return items.flatMap((item) =>
+function resolveGrants(
+  items: { id?: string; rules?: RuleElement[] }[],
+  content: ContentIndex,
+  elecciones: Record<string, string> = {},
+): ClassFeature[] {
+  // El pack a veces repite el mismo grant (Anvil Dwarf trae Specialty Crafting
+  // dos veces): se otorga una sola.
+  const vistos = new Set<string>();
+  const resueltos = items.flatMap((item) =>
     (item.rules ?? [])
-      .filter((r) => r.key === 'GrantItem' && r.id)
+      .filter((r) => r.key === 'GrantItem' && r.id && cumpleEleccion(r, item, elecciones))
       .map(
         (r) =>
           content.featureById.get(r.id!) ??
@@ -485,6 +503,61 @@ function resolveGrants(items: { rules?: RuleElement[] }[], content: ContentIndex
       )
       .filter((f): f is ClassFeature => !!f),
   );
+
+  return resueltos.filter((f) => {
+    if (vistos.has(f.id)) return false;
+    vistos.add(f.id);
+    return true;
+  });
+}
+
+/**
+ * El arma que otorga una dote, si el grant no apunta directo al catálogo.
+ *
+ * Foundry encadena: el Clan Dagger otorga la dote "Clan Pistol", y ESA otorga
+ * la pistola. Un solo salto alcanza para todos los casos del pack.
+ */
+function equipoDeUnPaso(id: string, content: ContentIndex): Equipment | undefined {
+  const intermedio = content.featById.get(id) ?? content.featureById.get(id);
+  for (const regla of intermedio?.rules ?? []) {
+    if (regla.key !== 'GrantItem' || !regla.id) continue;
+    const item = content.equipmentById.get(regla.id);
+    if (item) return item;
+  }
+  return undefined;
+}
+
+/**
+ * Un GrantItem predicado se aplica solo si coincide con lo elegido en el
+ * ChoiceSet del mismo rasgo.
+ *
+ * El Clan Dagger de los enanos trae DOS grants —la daga y la pistola— cada uno
+ * predicado sobre la elección. Sin mirar el predicado se otorgaban los dos.
+ * Mientras no haya elección, no se otorga ninguno: es mejor que falte a que
+ * aparezcan las dos armas.
+ */
+function cumpleEleccion(
+  regla: RuleElement,
+  item: { id?: string; rules?: RuleElement[] },
+  elecciones: Record<string, string>,
+): boolean {
+  const pred = regla.predicate ?? [];
+  if (!pred.length) return true;
+
+  /*
+   * Un predicado no siempre habla de una elección: Way of the Drifter tiene sus
+   * grants predicados sobre `class:gunslinger`, que no es algo que se elija. Se
+   * mira SOLO cuando el rasgo trae su propio ChoiceSet y el predicado nombra una
+   * de sus opciones; el resto pasa como antes.
+   */
+  const opciones = (item.rules ?? [])
+    .filter((r) => r.key === 'ChoiceSet')
+    .flatMap((r) => (r.choices ?? []).map((c) => c.id));
+  const esDeLaEleccion = pred.some((p) => opciones.includes(p));
+  if (!esDeLaEleccion) return true;
+
+  const elegido = item.id ? elecciones[item.id] : undefined;
+  return !!elegido && pred.includes(elegido);
 }
 
 /**
@@ -618,6 +691,8 @@ function computeProficiencies(
 
   /** Habilidades libres que se deben por entrenamiento repetido. */
   const skillsLibres: SkillLibre[] = [];
+  /** Aumentos de experto o mas que cayeron repetidos y se pierden. */
+  const redundantes: string[] = [];
 
   const prof: Proficiencies = {
     perception: pf2class?.perception ?? 0,
@@ -654,10 +729,14 @@ function computeProficiencies(
     }
   }
 
-  // Lores del trasfondo (ej. "Hunting" -> Hunting Lore, entrenado).
-  for (const lore of background?.lore ?? []) {
-    const key = `lore:${slug(lore)}`;
-    prof.lores[key] = { name: lore.replace(/\s*Lore$/i, ''), rank: upgrade(prof.lores[key]?.rank ?? 0, 1) };
+  // Lores del trasfondo (ej. "Hunting" -> Hunting Lore, entrenado) y los que
+  // el jugador agregó a mano: Additional Lore no trae NINGUNA regla en el pack,
+  // el nombre del lore es texto libre que inventa el jugador.
+  for (const lore of [...(background?.lore ?? []), ...(build.extraLores ?? [])]) {
+    const limpio = lore.trim();
+    if (!limpio) continue;
+    const key = `lore:${slug(limpio)}`;
+    prof.lores[key] = { name: limpio.replace(/\s*Lore$/i, ''), rank: upgrade(prof.lores[key]?.rank ?? 0, 1) };
   }
 
   /*
@@ -672,28 +751,71 @@ function computeProficiencies(
    * (la skill de la herencia, las libres de clase) no generan una deuda: se
    * avisa al elegirlas y se cambia ahí, que es más directo.
    */
-  const fijas: { slug: string; origen: string }[] = [
-    ...(pf2class?.trainedSkills.fixed ?? []).map((slug) => ({ slug, origen: pf2class?.name ?? 'Clase' })),
-    ...(background?.trainedSkills ?? []).map((slug) => ({ slug, origen: background?.name ?? 'Trasfondo' })),
-    ...(heritage?.rules ?? [])
-      .filter((r) => r.key === 'Proficiency' && !r.elegida && r.path?.startsWith('skills.'))
-      .map((r) => ({ slug: r.path!.split('.')[1], origen: heritage!.name })),
+  /** El rango de una regla, que puede depender del nivel (Skilled Heritage). */
+  const rangoDe = (rule: RuleElement): number | null => {
+    if (rule.porNivel?.length) {
+      // Vienen de mayor a menor: el primero que alcanzás es el que vale.
+      return rule.porNivel.find((tramo) => level >= tramo.desde)?.value ?? null;
+    }
+    return rule.value ?? null;
+  };
+
+  /** Lo que otorga cada fuente: la skill, el rango, y de dónde sale. */
+  const reglasDeSkill = (item: { id?: string; name: string; rules?: RuleElement[] }, elegidaDe?: string) =>
+    (item.rules ?? [])
+      .filter((r) => r.key === 'Proficiency' && r.path?.startsWith('skills.'))
+      .map((r) => {
+        /*
+         * `skills.{elegida}` = la habilidad que elegiste PARA ESTE ítem. La
+         * herencia la guarda aparte por historia (`heritageSkill`); el resto
+         * —Skill Training, Specialty Crafting, las dedications— sale de
+         * `featureChoices`, que es la caja general.
+         */
+        const suya = elegidaDe ?? (item.id ? build.featureChoices?.[item.id] : undefined);
+        const slug = r.elegida || r.path === 'skills.{elegida}' ? suya : r.path!.split('.')[1];
+        const rank = rangoDe(r);
+        return slug && rank ? { slug, rank, origen: item.name } : null;
+      })
+      .filter((g): g is { slug: string; rank: number; origen: string } => !!g);
+
+  const otorgadas = [
+    ...(pf2class?.trainedSkills.fixed ?? []).map((slug) => ({ slug, rank: 1, origen: pf2class?.name ?? 'Clase' })),
+    ...(background?.trainedSkills ?? []).map((slug) => ({ slug, rank: 1, origen: background?.name ?? 'Trasfondo' })),
+    ...(heritage ? reglasDeSkill(heritage, build.heritageSkill ?? undefined) : []),
+    ...activeFeatures.flatMap((f) => reglasDeSkill(f)),
+    ...chosenFeats.flatMap((f) => reglasDeSkill(f)),
   ].filter((g) => g.slug in skills);
 
-  /** Skill fija -> de dónde viene. Lo usa la UI para avisar antes de elegir. */
+  /** Skill -> de dónde viene. Lo usa la UI para avisar antes de elegir. */
   const vistas = new Map<string, string>();
-  for (const { slug, origen } of fijas) {
-    const anterior = vistas.get(slug);
-    if (anterior) {
-      // Repetida: queda a deber una libre, con el porqué escrito.
-      skillsLibres.push({
-        clave: `${slug}:${origen}`,
-        motivo: `${origen} te entrena en ${slug}, que ya tenías por ${anterior}`,
-      });
+  const rangoOtorgado = new Map<string, number>();
+
+  for (const { slug, rank, origen } of otorgadas) {
+    const yaTiene = rangoOtorgado.get(slug) ?? 0;
+
+    if (yaTiene >= rank) {
+      if (rank === 1) {
+        // Entrenado repetido: la regla te da una habilidad entrenada libre.
+        skillsLibres.push({
+          clave: `${slug}:${origen}`,
+          motivo: `${origen} te entrena en ${slug}, que ya tenías por ${vistas.get(slug)}`,
+        });
+      } else {
+        /*
+         * Experto o superior repetido: NO da nada a cambio, el beneficio se
+         * pierde. Lo unico que se puede hacer es reentrenar una de las dos
+         * fuentes, y para eso hay que enterarse.
+         */
+        redundantes.push(
+          `${origen} te sube ${slug} a ${PROFICIENCY_NAMES[rank]?.toLowerCase() ?? rank}, que ya tenías por ${vistas.get(slug)}: ese aumento se pierde, conviene reentrenar una de las dos.`,
+        );
+      }
       continue;
     }
+
     vistas.set(slug, origen);
-    skills[slug] = upgrade(skills[slug], 1);
+    rangoOtorgado.set(slug, rank);
+    skills[slug] = upgrade(skills[slug], rank as ProficiencyRank);
   }
 
   // Las libres que ya elegiste para saldar esas deudas.
@@ -721,15 +843,6 @@ function computeProficiencies(
 
   // Upgrades declarados por los class features activos y por los feats tomados.
   // El dataset los trae como { key: 'Proficiency', path, value } (ver importador).
-  /** El rango de una regla, que puede depender del nivel (Skilled Heritage). */
-  const rangoDe = (rule: RuleElement): number | null => {
-    if (rule.porNivel?.length) {
-      // Vienen de mayor a menor: el primero que alcanzás es el que vale.
-      return rule.porNivel.find((tramo) => level >= tramo.desde)?.value ?? null;
-    }
-    return rule.value ?? null;
-  };
-
   const applyRules = (items: { rules?: RuleElement[] }[]) => {
     for (const item of items) {
       for (const rule of item.rules ?? []) {
@@ -742,17 +855,13 @@ function computeProficiencies(
          * usan las herencias (Skilled Heritage, Ancient Ash), que es de donde
          * sale `heritageSkill`.
          */
-        if (rule.elegida || rule.path === 'skills.{elegida}') {
-          const elegida = build.heritageSkill;
-          if (elegida && elegida in skills) skills[elegida] = upgrade(skills[elegida], valor);
-          continue;
-        }
+        // Idem: la skill elegida de la herencia ya paso por `otorgadas`.
+        if (rule.elegida || rule.path === 'skills.{elegida}') continue;
 
+        // Las skills NO se aplican acá: pasan por el pipeline de `otorgadas`,
+        // que es el unico lugar donde se puede ver si cayeron repetidas.
         const parts = rule.path.split('.');
-        if (parts[0] === 'skills' && parts[1] in skills) {
-          skills[parts[1]] = upgrade(skills[parts[1]], valor);
-          continue;
-        }
+        if (parts[0] === 'skills') continue;
         if (parts[0] === 'perception') prof.perception = upgrade(prof.perception, valor);
         else if (parts[0] === 'saves' && parts[1] in prof.saves)
           prof.saves[parts[1] as keyof typeof prof.saves] = upgrade(prof.saves[parts[1] as keyof typeof prof.saves], valor);
@@ -798,6 +907,7 @@ function computeProficiencies(
 
   prof.skillsLibres = skillsLibres;
   prof.skillsFijas = Object.fromEntries(vistas);
+  prof.skillsRedundantes = redundantes;
   return prof;
 }
 
@@ -871,7 +981,18 @@ export function computeCharacter(
     .map((c) => content.featureById.get(c.id!))
     .filter((f): f is ClassFeature => !!f);
 
-  const grantedByChoice = resolveGrants(chosenFeatures, content);
+  /*
+   * Lo que otorgan la HERENCIA y el TRASFONDO, que hasta ahora no miraba nadie.
+   *
+   * Anvil Dwarf da Specialty Crafting y Deputy da Experienced Tracker: las dos
+   * son dotes prometidas por escrito que simplemente no aparecían en la hoja.
+   */
+  const grantedByHeritage = heritage ? resolveGrants([heritage], content, build.featureChoices ?? {}) : [];
+  const featsDelTrasfondo = (background?.grantedFeats ?? [])
+    .map((g) => (g.id ? content.featById.get(g.id) : undefined))
+    .filter((f): f is Feat => !!f);
+
+  const grantedByChoice = resolveGrants(chosenFeatures, content, build.featureChoices ?? {});
 
   activeFeatures.push(...chosenFeatures, ...grantedByChoice);
   granted.push(
@@ -881,6 +1002,14 @@ export function computeCharacter(
       id: f.id,
       source: 'class' as FeatSource,
     })),
+  );
+
+  activeFeatures.push(...grantedByHeritage);
+  granted.push(
+    ...grantedByHeritage.map((f) => ({ name: f.name, level: f.level ?? 1, id: f.id, source: 'ancestry' as FeatSource })),
+  );
+  granted.push(
+    ...featsDelTrasfondo.map((f) => ({ name: f.name, level: f.level ?? 1, id: f.id, source: 'background' as FeatSource })),
   );
 
   // --- feats elegidos hasta el nivel actual
@@ -899,6 +1028,73 @@ export function computeCharacter(
   granted.push(
     ...grantedByFeats.map((f) => ({ name: f.name, level: f.level ?? 1, id: f.id, source: 'class' as FeatSource })),
   );
+
+  /*
+   * Rasgos que hacen elegir entre objetos. El Clan Dagger de los enanos es el
+   * caso: un ChoiceSet con daga o pistola, y dos GrantItem predicados sobre esa
+   * elección. Las opciones salen de los grants, así que el nombre que se
+   * muestra es el del objeto de verdad y no la clave de Foundry.
+   */
+  /*
+   * Todas las elecciones con consecuencia que abren los rasgos y las dotes.
+   *
+   * La detección vive en `rules/elecciones.ts`: el pack tiene 228 ChoiceSets y
+   * la app resolvía dos a mano (la skill de la herencia y el arma del Clan
+   * Dagger). El resto se perdían en silencio, que es lo peor que puede pasar:
+   * el personaje sale mal y nadie se entera.
+   */
+  const buscadorDeObjetos = {
+    equipo: (id: string) => content.equipmentById.get(id),
+    equipoIndirecto: (id: string) => equipoDeUnPaso(id, content),
+  };
+
+  const eleccionesDeRasgos = [...activeFeatures, ...chosenFeats].flatMap((item) =>
+    eleccionesDe(item, {
+      elegidas: build.featureChoices ?? {},
+      objetos: buscadorDeObjetos,
+      dotesTomadas: chosenFeats,
+    }),
+  );
+
+  /*
+   * Las que la app no sabe ofrecer: se avisan igual. Un ítem que promete una
+   * elección y no la pide es la peor de las dos opciones — el personaje sale
+   * mal y no hay ninguna señal.
+   */
+  for (const item of [...activeFeatures, ...chosenFeats]) {
+    for (const abierta of eleccionesAbiertasDe(item)) warnings.push(abierta.texto);
+  }
+
+  for (const eleccion of eleccionesDeRasgos) {
+    if (!eleccion.elegido) {
+      warnings.push(textoDeEleccion(eleccion));
+      continue;
+    }
+
+    if (eleccion.tipo !== 'objeto') continue;
+
+    /*
+     * Elegida pero sin el arma en la mochila. Pasa cuando la decidió una dote
+     * (Clan Pistol): el jugador nunca apretó nada, así que nadie la metió al
+     * inventario. Se avisa en vez de meterla sola: el motor no toca el build.
+     */
+    const enMochila = build.inventory.some((i) => i.grantedBy === eleccion.itemId);
+    const elegida = eleccion.opciones.find((o) => o.valor === eleccion.elegido);
+    if (!enMochila) {
+      warnings.push(
+        `${elegida?.etiqueta ?? 'El arma'} te corresponde por ${eleccion.decididoPor ?? eleccion.itemName} y no está en el inventario: tocá su opción en Elecciones de rasgos.`,
+      );
+    }
+
+    /*
+     * El rasgo se llama "Clan Dagger" aunque hayas elegido la pistola: es el
+     * nombre del RASGO en el pack, no el del arma. Se le agrega lo elegido para
+     * que la lista de ancestría no diga una cosa y el inventario otra.
+     */
+    if (!elegida || elegida.etiqueta === eleccion.itemName) continue;
+    const fila = granted.find((g) => g.id === eleccion.itemId);
+    if (fila) fila.name = `${eleccion.itemName} (${elegida.etiqueta})`;
+  }
 
   const deity = build.deity ? (content.deityById.get(build.deity) ?? null) : null;
 
@@ -923,6 +1119,33 @@ export function computeCharacter(
   for (const libre of prof.skillsLibres ?? []) {
     if (!libre.elegida) warnings.push(`Te falta elegir una habilidad libre: ${libre.motivo}.`);
   }
+  for (const aviso of prof.skillsRedundantes ?? []) warnings.push(aviso);
+
+  /*
+   * Additional Lore da un Lore a elección, pero el pack no trae ninguna lista:
+   * el nombre lo inventa el jugador. Sin este aviso, tomar la dote no hacía
+   * absolutamente nada visible.
+   */
+  /*
+   * Habilidades libres de clase: el gunslinger entrena 3 + Inteligencia además
+   * de las fijas. Si quedaban sin elegir no lo decía nadie, y el personaje se
+   * quedaba con menos habilidades entrenadas de las que le tocan.
+   */
+  const libresDeClase = (pf2class?.trainedSkills.additional ?? 0) + Math.max(0, mods.int);
+  const elegidasDeClase = build.trainedSkills.filter((s) => s).length;
+  if (libresDeClase > elegidasDeClase) {
+    warnings.push(
+      `Te faltan ${libresDeClase - elegidasDeClase} habilidad(es) entrenada(s) de clase: se eligen en Habilidades.`,
+    );
+  }
+
+  const dotesDeLore = chosenFeats.filter((f) => f.slug === 'additional-lore').length;
+  const loresEscritos = (build.extraLores ?? []).filter((l) => l.trim()).length;
+  if (dotesDeLore > loresEscritos) {
+    warnings.push(
+      `Tomaste Additional Lore ${dotesDeLore} vez/veces y escribiste ${loresEscritos}: agregá el Lore en Habilidades.`,
+    );
+  }
 
   /*
    * La skill de la herencia cayendo en una que ya te da algo fijo. No genera
@@ -930,7 +1153,9 @@ export function computeCharacter(
    * decirlo, porque si no la elección no hace nada.
    */
   const deLaHerencia = build.heritageSkill;
-  const origenFijo = deLaHerencia ? prof.skillsFijas?.[deLaHerencia] : null;
+  const origenBruto = deLaHerencia ? prof.skillsFijas?.[deLaHerencia] : null;
+  // La propia herencia no cuenta como choque consigo misma.
+  const origenFijo = origenBruto === heritage?.name ? null : origenBruto;
   if (deLaHerencia && origenFijo) {
     warnings.push(
       `La habilidad de la herencia (${deLaHerencia}) ya te la da ${origenFijo}: elegí otra, o quedará desperdiciada.`,
@@ -1642,8 +1867,18 @@ export function computeCharacter(
     deity,
     alignment: build.alignment,
     skills,
+    eleccionesDeRasgos,
     skillsLibres: prof.skillsLibres ?? [],
-    skillsFijas: prof.skillsFijas ?? {},
+    /*
+     * Se saca la propia elección de la herencia: si no, la skill elegida
+     * aparecería como "ya te la da la herencia" y se marcaría a sí misma.
+     */
+    skillsDeClase: { total: libresDeClase, usadas: elegidasDeClase },
+    skillsFijas: Object.fromEntries(
+      Object.entries(prof.skillsFijas ?? {}).filter(
+        ([slug, origen]) => !(slug === build.heritageSkill && origen === heritage?.name),
+      ),
+    ),
     lores,
     initiative: { options: initiativeOptions, conditional: initiativeConditional },
     money: { startingCp: STARTING_MONEY_CP, spentCp, remainingCp: STARTING_MONEY_CP - spentCp },

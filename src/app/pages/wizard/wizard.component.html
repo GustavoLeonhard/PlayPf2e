@@ -460,6 +460,11 @@
     }
   </section>
 
+  <!-- Se dice QUÉ falta, no solo que el botón está apagado. -->
+  @if (step().id === 'abilities' && boostsPendientes().length) {
+    <p class="muted falta">Falta elegir: {{ boostsPendientes().join(', ') }}.</p>
+  }
+
   <div class="nav">
     <button class="btn" type="button" (click)="back()" [disabled]="stepIndex() === 0">Atrás</button>
 

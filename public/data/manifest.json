@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T13:44:05.545Z",
+  "generatedAt": "2026-08-21T22:15:47.371Z",
   "source": "pf2e-legacy-content",
   "packs": {
     "classes": {
@@ -12,11 +12,11 @@
     },
     "ancestry-features": {
       "count": 39,
-      "kb": 26
+      "kb": 27
     },
     "heritages": {
       "count": 230,
-      "kb": 143
+      "kb": 144
     },
     "backgrounds": {
       "count": 389,
@@ -24,11 +24,11 @@
     },
     "class-features": {
       "count": 553,
-      "kb": 668
+      "kb": 672
     },
     "feats": {
       "count": 4238,
-      "kb": 3451
+      "kb": 3457
     },
     "spells": {
       "count": 1520,

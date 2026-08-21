@@ -184,15 +184,40 @@ function relevantRules(rules) {
           .filter((f) => typeof f === 'string' && f.startsWith('item:tag:'))
           .map((f) => f.replace('item:tag:', ''));
 
+        /*
+         * Elecciones que NO se pueden resolver acá: el filtro es un mini
+         * lenguaje de predicados ("item:trait:general", {lte:["item:level",7]},
+         * {not:...}) sobre otro pack entero. Resolverlas pide un evaluador; por
+         * ahora se deja constancia de que EXISTEN, para poder avisar en vez de
+         * perderlas en silencio.
+         */
+        const abierta = !choices?.length && !filterTags.length && !!r.choices;
+        const tipoDeItem = r.choices && !Array.isArray(r.choices) ? (r.choices.itemType ?? null) : null;
+
         return {
           key: 'ChoiceSet',
           prompt: r.prompt ?? '',
           flag: r.flag ?? null,
           choices,
           filterTags: filterTags.length ? filterTags : null,
+          /** No se puede resolver sola: hay que elegir a mano. */
+          abierta: abierta || undefined,
+          /** Sobre qué se elige, cuando se sabe: 'feat', 'ancestry'... */
+          tipoDeItem: tipoDeItem ?? undefined,
         };
       }
-      if (r.key === 'GrantItem') return { key: 'GrantItem', id: idFromUuid(r.uuid) };
+      if (r.key === 'GrantItem') {
+        return {
+          key: 'GrantItem',
+          id: idFromUuid(r.uuid),
+          /*
+           * Sin el predicado, el Clan Dagger de los enanos otorgaba la daga Y
+           * la pistola: las dos GrantItem vienen predicadas sobre la eleccion
+           * del ChoiceSet, y al descartarlo se aplicaban las dos.
+           */
+          predicate: Array.isArray(r.predicate) ? r.predicate.filter((p) => typeof p === 'string') : [],
+        };
+      }
       return {
         key: 'FlatModifier',
         selector: r.selector,

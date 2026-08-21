@@ -1585,3 +1585,192 @@ button.efecto-nombre:hover {
   border-left: 3px solid var(--accent);
   padding-left: 0.5rem;
 }
+
+/* Nombre editable en el lugar: se ve como título hasta que lo tocás. */
+.nombre-editable {
+  outline: none;
+  border-bottom: 1px dashed transparent;
+}
+
+.nombre-editable:hover,
+.nombre-editable:focus {
+  border-bottom-color: var(--border);
+}
+
+.deidad-select {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-left: 0.3rem;
+}
+
+.deidad-select:hover,
+.deidad-select:focus {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.deidad-select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* El daño y el crítico, con el mismo peso que la tirada de ataque. */
+.r-total.dano {
+  font-size: 1.15rem;
+  margin-top: 0.35rem;
+}
+
+.r-total.dano.critico {
+  color: var(--accent);
+}
+
+/* Los boosts, para corregirlos sin rehacer el personaje. */
+.boosts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.boost-fila {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.boost-fila.pendiente .boost-label {
+  color: var(--accent);
+}
+
+.boost-label {
+  flex: 0 0 11rem;
+  font-size: 0.82rem;
+}
+
+/* Lores escritos a mano: van debajo de la lista, con su alta y baja. */
+.agregar-lore {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+  grid-column: 1 / -1;
+}
+
+.agregar-lore input {
+  flex: 1 1 auto;
+}
+
+
+
+/* Elecciones que abre un rasgo: una fila por elección, como el resto. */
+.elecciones-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.eleccion-fila {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.eleccion-fila.pendiente .eleccion-nombre {
+  color: var(--accent);
+}
+
+.eleccion-nombre {
+  flex: 0 0 11rem;
+  font-weight: 600;
+}
+
+/* El tilde de las habilidades libres de clase: apagado casi no se ve. */
+.pick-clase {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--border);
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.1rem 0.25rem;
+}
+
+.pick-clase:hover {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.pick-clase.on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.libres-clase {
+  grid-column: 1 / -1;
+  margin: 0 0 0.5rem;
+}
+
+/* Bloque de elecciones de habilidad: separado de la lista de tiradas. */
+.skill-elecciones {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* El contador de lo que falta, encima del botón que lo esconde. */
+.pendiente-pip {
+  display: inline-block;
+  min-width: 1.1rem;
+  margin-left: 0.35rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #221b10;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Un acordeón por origen, uno debajo del otro. */
+.feat-grupos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* Cada dote ocupa la fila entera, como en el resto de la hoja. */
+.feat-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.feat-nombre {
+  font-weight: 600;
+}
+
+.feat-nivel {
+  font-size: 0.8rem;
+}
+
+.feat-row .quitar {
+  padding: 0 0.5rem;
+  font-size: 0.78rem;
+}

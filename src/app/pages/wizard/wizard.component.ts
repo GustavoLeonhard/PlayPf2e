@@ -457,10 +457,35 @@ export class WizardComponent {
     return cls.trainedSkills.additional + abilityMod(this.previewScores().int);
   });
 
+  /**
+   * Las habilidades que YA te entrena algo, para no gastar una libre en ellas.
+   *
+   * No alcanza con la clase y el trasfondo: la herencia también entrena (Anvil
+   * Dwarf da Crafting) y las dotes también (Munitions Crafter). Sin esto, el
+   * paso mostraba solo Survival y parecía que Crafting estaba libre.
+   */
   readonly autoTrained = computed(() => {
-    const fromClass = this.pf2class()?.trainedSkills.fixed ?? [];
-    const fromBackground = this.background()?.trainedSkills ?? [];
-    return [...new Set([...fromClass, ...fromBackground])];
+    const build = this.build();
+    const deReglas = (rules: { key: string; path?: string; elegida?: boolean }[] | undefined) =>
+      (rules ?? [])
+        .filter((r) => r.key === 'Proficiency' && r.path?.startsWith('skills.'))
+        .map((r) => (r.elegida || r.path === 'skills.{elegida}' ? build.heritageSkill : r.path!.split('.')[1]))
+        .filter((s): s is string => !!s);
+
+    const heritage = this.heritages().find((h) => h.id === build.heritage);
+    const dotes = build.choices
+      .filter((c) => c.id)
+      .map((c) => this.feats().find((f) => f.id === c.id))
+      .filter((f): f is Feat => !!f);
+
+    return [
+      ...new Set([
+        ...(this.pf2class()?.trainedSkills.fixed ?? []),
+        ...(this.background()?.trainedSkills ?? []),
+        ...deReglas(heritage?.rules),
+        ...dotes.flatMap((f) => deReglas(f.rules)),
+      ]),
+    ];
   });
 
   toggleSkill(slug: string) {
@@ -566,9 +591,36 @@ export class WizardComponent {
         return b.name.trim().length > 0;
       case 'spells':
         return true;
+      case 'abilities':
+        /*
+         * Se bloquea a propósito: los boosts no se podían corregir después, y
+         * un personaje que salía del asistente sin elegirlos quedaba con
+         * atributos mal para siempre. Ahora además se pueden editar desde la
+         * hoja, pero es mejor no llegar ahí con el problema hecho.
+         */
+        return this.boostsPendientes().length === 0;
       default:
         return true;
     }
+  });
+
+  /** Lo que falta elegir en el paso de atributos, en palabras. */
+  readonly boostsPendientes = computed<string[]>(() => {
+    const b = this.build();
+    const faltan: string[] = [];
+
+    this.ancestryBoostSets().forEach((_, i) => {
+      if (!b.abilityBoosts.ancestry[i]) faltan.push(`boost de ancestría ${i + 1}`);
+    });
+    this.backgroundBoostSets().forEach((_, i) => {
+      if (!b.abilityBoosts.background[i]) faltan.push(`boost de trasfondo ${i + 1}`);
+    });
+    if (this.classKeyOptions().length > 1 && !b.abilityBoosts.class[0]) faltan.push('el atributo clave de la clase');
+
+    const libres = b.abilityBoosts.level1.filter(Boolean).length;
+    if (libres < 4) faltan.push(`${4 - libres} boost(s) libre(s) de nivel 1`);
+
+    return faltan;
   });
 
   next() {

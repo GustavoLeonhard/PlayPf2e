@@ -954,3 +954,211 @@ con ella, sin dejar basura.
 Verificado en vivo: Human + Cleric + Acolyte → aviso de habilidad libre, se
 elige Stealth y queda entrenada (+3) con el aviso apagado. Y en chuqui, elegir
 Acrobatics para la herencia (que ya da Acrobat) dispara la advertencia.
+
+### 4-duotricies. Entrenamiento repetido: dotes, y las dos mitades de la regla
+
+La regla no da lo mismo según el rango, y eso cambia qué hace la app:
+
+- **Repetir ENTRENADO** → ganás una habilidad entrenada libre a elección.
+- **Repetir EXPERTO o superior** → **no ganás nada**: ese aumento se pierde.
+  Lo único que se puede hacer es reentrenar una de las dos fuentes, así que se
+  avisa nombrando a las dos.
+
+Y un tercer caso que NO es repetición y es fácil de confundir: **subir a
+experto algo que solo tenías entrenado es un aumento legítimo**. Tiene su
+propio test para que no se rompa al tocar esto.
+
+Para que las dotes entraran, las skills salieron de `applyRules` y pasaron al
+pipeline de `otorgadas`, que es el único lugar donde se ve el rango de cada
+otorgamiento junto con su origen. Ahora conviven ahí clase, trasfondo,
+herencia, rasgos de clase y las **139 dotes** que entrenan habilidades.
+
+Regla general que sale sola de ese diseño: *un otorgamiento de rango R es
+redundante si la skill ya llegó a R o más por otro otorgamiento*. Con R = 1 se
+debe una libre; con R ≥ 2 se avisa.
+
+**Un choque consigo mismo**: al meter la herencia en el pipeline, su propia
+skill elegida entraba en `skillsFijas` y se marcaba a sí misma como "ya la
+tenés". Se excluye esa entrada puntual, no el mapa entero, porque una herencia
+de skill FIJA (Winter Orc) sí tiene que marcar.
+
+Verificado en vivo con un Fighter de nivel 4: dos dedications que suben
+Deception a experto → queda experto una vez y sale el aviso de reentrenar; dos
+dotes que entrenan Thievery → habilidad libre, se elige Arcana y queda en +6.
+Los dos avisos conviven y solo desaparece el que corresponde.
+
+### 4-tertricies. Seis huecos de edición
+
+**Boosts de atributo.** Se elegían al crear y no se podían corregir nunca más:
+un PJ que salía del asistente con boosts a medias quedaba con los atributos mal
+para siempre. Dos arreglos, porque hacía falta prevenir Y curar: el asistente
+**bloquea "Siguiente"** diciendo qué falta, y la pestaña de Atributos los deja
+**editar**, para los que ya salieron mal. Tocar el mismo dos veces lo saca, así
+no hace falta otro botón para deshacer.
+
+**Nombre y deidad** editables desde la hoja. El nombre en el lugar; la deidad
+como desplegable en la línea de la ficha.
+
+**Clan Dagger (enanos).** Tres bugs encadenados:
+
+1. El importador **descartaba el predicado de los GrantItem**, así que las dos
+   opciones —daga y pistola— se otorgaban juntas.
+2. El predicado NO siempre habla de una elección: Way of the Drifter tiene sus
+   grants predicados sobre `class:gunslinger`. Enforzarlo a ciegas rompía la
+   vía del gunslinger. Se mira **solo cuando el rasgo trae su propio ChoiceSet
+   y el predicado nombra una de sus opciones**.
+3. La pistola no apunta al arma: apunta a una DOTE que a su vez la otorga.
+   Hace falta seguir **un salto** para llegar al objeto del catálogo.
+
+El arma elegida entra al inventario de verdad, marcada con `grantedBy`, así se
+equipa y tira como cualquier otra. Cambiar la elección cambia ese objeto y solo
+ese.
+
+**Additional Lore** no trae NINGUNA regla en el pack: el nombre del Lore es
+texto libre que inventa el jugador. Se agrega escribiéndolo en Habilidades
+(`build.extraLores`), y hay un aviso si tomaste la dote y no lo escribiste.
+
+**La tirada** pasó a siete filas: cada número grande con su desglose justo
+debajo. Antes el daño y el crítico compartían renglón con su detalle y no se
+sabía qué explicaba qué. El detalle del crítico se calcula aparte, porque no es
+el mismo cálculo: fatal cambia el tamaño del dado y deadly suma uno extra.
+
+**Un fallo del banco de pruebas**, encontrado por el Clan Dagger: el
+`featureById` del spec tenía solo `class-features`, mientras que la app mezcla
+también `ancestry-features`. Los rasgos de ancestría eran invisibles para los
+tests. Alineado.
+
+### 4-quattuortricies. Los boosts, las elecciones y el Lore duplicado
+
+**Boosts detrás de un botón** en la cabecera del acordeón de Atributos (el slot
+`[acc-extra]` que ya existía). Son doce filas que casi nunca se tocan y
+estorbaban arriba de los atributos todo el tiempo.
+
+**Elecciones de rasgos** pasó a ser su propio acordeón, con el contador de las
+que faltan en el subtítulo. Es el lugar donde van a ir las que aparezcan al
+subir de nivel, en vez de repartirlas por la hoja.
+
+**`.chip` se mudó a los estilos globales.** Vivía dentro del asistente, así que
+al usarlo en la hoja salía como un botón gris del navegador. Ahora lo comparten
+los dos, con las mismas reglas.
+
+**El Lore agregado a mano se pintaba dos veces**: la fila completa —con rango,
+número y favorito— y otra pelada abajo con solo el nombre. La pelada parecía
+rota, porque no tenía ni el combo de rango ni el modificador. Se fue, y el
+`quitar` se mudó a la fila de verdad.
+
+El `slug()` del motor ahora se exporta y lo usa la hoja para saber qué Lore es
+manual: reimplementarlo era la forma segura de que las claves se desincronizaran
+con el primer nombre acentuado.
+
+### 4-quintricies. Lo que otorgan la herencia y el trasfondo
+
+Un enano Anvil + Deputy + Munitions Crafter destapó tres huecos, todos del
+mismo tipo: **cosas prometidas por escrito que la hoja no aplicaba**.
+
+- **`resolveGrants` nunca miraba la herencia.** Anvil Dwarf otorga Specialty
+  Crafting y no aparecía en ningún lado.
+- **`background.grantedFeats` no se usaba en absoluto.** Deputy da Experienced
+  Tracker; el campo estaba en el modelo, importado y sin leer. Ahora los rasgos
+  se agrupan también por **Trasfondo**, sin "+ Agregar": vienen con el
+  trasfondo y no se sacan a mano.
+- **Habilidades libres de clase.** Un gunslinger entrena 3 + Inteligencia
+  además de las fijas, y si quedaban sin elegir no lo decía nadie: el personaje
+  se quedaba con menos habilidades de las que le tocan, en silencio. Kaz tenía
+  **4 sin usar**. Ahora hay contador y se eligen desde la hoja con un tilde,
+  que es distinto de pisar el rango a mano: gasta una de las que te tocan y se
+  ve en el contador.
+
+Dos correcciones más:
+
+- **El pack repite grants**: Anvil Dwarf trae Specialty Crafting DOS veces.
+  `resolveGrants` deduplica por id.
+- **El rasgo ahora dice qué elegiste**: se llamaba "Clan Dagger" aunque
+  hubieras elegido la pistola, porque ese es el nombre del RASGO, no del arma.
+  Pasa a leerse "Clan Dagger (Clan Pistol)", así la lista de ancestría no dice
+  una cosa y el inventario otra.
+
+### 4-sextricies. Lo que se elige, escondido; lo que se juega, a la vista
+
+Criterio que ordena estos cambios: **lo que se decide al crear el personaje no
+tiene por qué estar a la vista mientras jugás.**
+
+- **Elecciones de habilidad detrás de un botón** en la cabecera de Habilidades,
+  igual que los boosts: la de la herencia, las libres por entrenamiento
+  repetido y los tildes de las libres de clase. El botón lleva un contador de
+  lo que falta, para que esconderlo no sea taparlo.
+- **Rasgos y dotes**: un acordeón por origen en vez de una rejilla de seis
+  columnas donde no se leía nada. Cada dote ocupa la fila entera y cada grupo
+  recuerda si lo dejaste abierto, porque el estado se guarda por título y los
+  de adentro tienen títulos propios.
+
+**El asistente marcaba mal las habilidades ya entrenadas.** `autoTrained` solo
+miraba la clase y el trasfondo: la herencia (Anvil Dwarf → Crafting) y las
+dotes (Munitions Crafter) no contaban, así que Crafting aparecía libre y se
+podía gastar una elección en ella sin efecto. Ahora mira las cuatro fuentes.
+
+**"Clan Dagger (Clan Pistol)" + "Clan Pistol" no era un duplicado**, eran dos
+cosas distintas: la dote de ancestría es el *permiso* y el rasgo es lo que
+recibís. Pero pedía elegir dos veces. Ahora **la dote resuelve la elección
+sola** (`decididoPor`), y si el arma que te corresponde no está en la mochila
+se avisa, en vez de meterla el motor por su cuenta: el motor no toca el build.
+
+### 4-septentricies. Elecciones de rasgos, generalizadas
+
+La auditoría del dataset: **228 ChoiceSets**, de los cuales la app resolvía dos
+a mano (la habilidad de la herencia y el arma del Clan Dagger). El resto se
+perdían **en silencio**, que es lo peor de esta familia de bugs: el personaje
+sale mal y nadie se entera.
+
+`rules/elecciones.ts` las detecta sola. La regla para decidir si preguntar:
+**la elección tiene que mover algún número.** De las 228, la mayoría son de
+sabor; preguntar por todas convertiría la hoja en un formulario. Quedan **26
+ítems**: 22 de habilidad, 6 de valor y 1 de objeto.
+
+Tres tipos, porque el pack usa la elección de tres formas distintas:
+
+- **objeto** — el valor decide qué `GrantItem` aplica (Clan Dagger). Entra al
+  inventario con `grantedBy`.
+- **habilidad** — el valor va al path de un `Proficiency`
+  (`skills.{item|…rulesSelections.skill}`): Skill Training, las dedications.
+  Lo aplica el mismo pipeline de otorgamientos, así que **entra en la detección
+  de entrenamiento repetido** sin nada extra.
+- **valor** — un dato suelto que otras reglas referencian (Specialty Crafting,
+  Terrain Expertise, el `keyAbility` de las dedications).
+
+Detalles que costaron encontrarse:
+
+- **Un predicado referencia la elección de dos formas**: nombrando una opción
+  (`"clan-pistol"`) o con la plantilla `{item|flags…rulesSelections.x}`.
+  Mirando solo la primera se quedaba afuera Specialty Crafting — justo la dote
+  que el Anvil Dwarf del usuario tenía puesta.
+- **Las etiquetas del pack son claves de i18n** (`PF2E.Skill.Acrobatics`). Se
+  usa el último tramo, y si coincide con una habilidad se usa su nombre real.
+  Cuando la opción otorga un objeto, gana el nombre del objeto.
+- **Pocas opciones van como chips, muchas como desplegable**: las 16
+  habilidades en chips ocupaban cuatro renglones por fila.
+
+Verificado en vivo: Specialty Crafting apareció sola en el enano que ya la
+tenía por Anvil Dwarf, y Skill Training pide la habilidad, avisa mientras
+falta, y al elegir Occultism la deja entrenada en +3 con el aviso apagado.
+
+### 4-duodequadragies. Las elecciones que no sabemos ofrecer
+
+Quedaban **72 ChoiceSets** que el pack describe con un filtro sobre otro pack
+entero: *"una dote general de nivel 7 o menos"*, *"una ancestría común que no
+sea la tuya"*. El filtro es un mini lenguaje de predicados —`item:trait:general`,
+`{lte: ["item:level", 7]}`, `{not: …}`, `{or: […]}`, con plantillas
+`{actor|…}`— así que ofrecerlas pide un evaluador.
+
+**Avisarlas no pide nada de eso.** El importador ahora marca esos ChoiceSet
+como `abierta`, con el `tipoDeItem` cuando el pack lo dice, y la hoja avisa:
+
+> *"Adopted Ancestry te hace elegir una ancestría, y la hoja todavía no sabe
+> ofrecer esa lista: anotalo aparte."*
+
+Se avisan **todas**, sin filtrar por consecuencia, al revés que las resolubles:
+ahí las opciones están del otro lado del filtro y no se puede saber si mueven
+números. Con la duda, mejor nombrarla.
+
+El aviso se puede marcar como resuelto, como cualquier otro, para el que ya lo
+anotó en su ficha de papel.

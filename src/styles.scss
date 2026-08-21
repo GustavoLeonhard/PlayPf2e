@@ -186,3 +186,42 @@ textarea {
   font-weight: 600;
   letter-spacing: 0.03em;
 }
+
+/*
+  Chip: la opción elegible de un set (un boost, un arma de ancestría).
+  Vive acá y no en el asistente porque la hoja también las usa: al agregarlas
+  allá salían sin estilo, como botones grises del navegador.
+*/
+.chip {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+}
+
+.chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #221b10;
+  font-weight: 600;
+}
+
+.chip.locked {
+  opacity: 0.75;
+  cursor: default;
+}
+
+/* Los sets de opciones se envuelven solos cuando no entran. */
+.opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}

@@ -77,6 +77,13 @@ export interface InventoryItem {
   invested?: boolean;
   /** Modificaciones del máster sobre esta arma. Ver CustomItem. */
   custom?: CustomItem;
+  /**
+   * Id del rasgo que te dio este objeto (el Clan Dagger de los enanos).
+   *
+   * Sirve para dos cosas: mostrarlo como otorgado en vez de comprado, y poder
+   * cambiarlo si cambiás la elección, sin tocar lo que compraste vos.
+   */
+  grantedBy?: string;
 }
 
 /**
@@ -214,6 +221,21 @@ export interface CharacterBuild {
   choices: Choice[];
   /** Skills entrenadas por eleccion libre de clase (las adicionales). */
   trainedSkills: string[];
+  /**
+   * Lores agregados a mano, entrenados.
+   *
+   * Additional Lore y compañía no traen NINGUNA regla en el pack: el nombre del
+   * lore es texto libre que inventa el jugador ("Circus Lore", "Underworld
+   * Lore"). No hay lista de dónde elegir, así que se escriben.
+   */
+  extraLores?: string[];
+  /**
+   * Elecciones que abren los rasgos de ancestría y clase, por id del rasgo.
+   *
+   * El caso que la trajo: el Clan Dagger de los enanos te deja elegir entre la
+   * daga y la pistola, y cada opción otorga un arma distinta.
+   */
+  featureChoices?: Record<string, string>;
   /**
    * Las habilidades libres que ganaste porque algo te entrenó en una que ya
    * tenías (la regla de entrenamiento repetido).
