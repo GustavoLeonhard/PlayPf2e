@@ -120,28 +120,57 @@ export function valorDe(regla: ReglaEfecto): number | null {
  */
 export function esAplicable(regla: ReglaEfecto): boolean {
   if (regla.key !== 'FlatModifier') return false;
-  if (regla.predicate) return false;
+  /*
+   * `.length`, no la verdad del array: el importador de dotes SIEMPRE escribe
+   * `predicate: []`, y un array vacío es truthy. Con la comprobación floja,
+   * Fleet quedaba descartada como si tuviera condiciones cuando no tiene
+   * ninguna. Los efectos no lo notaban porque su importador omite el campo.
+   */
+  if (regla.predicate?.length) return false;
   return valorDe(regla) !== null && selectoresDe(regla).length > 0;
 }
 
-/** Los modificadores que aportan los efectos activos para un selector dado. */
-export function effectModifiers(activos: Effect[], selectores: string[]): Modifier[] {
+/**
+ * Modificadores planos que aporta una lista de cosas con reglas.
+ *
+ * Sirve para los efectos Y para los rasgos y dotes: el pack los escribe igual
+ * (`FlatModifier` con selector, tipo y valor) y el vocabulario de selectores es
+ * el mismo. Fleet declara `land-speed +5` exactamente como lo hace Longstrider.
+ *
+ * `ignorar` deja afuera los selectores que el motor ya resuelve por otro lado:
+ * el daño de arma pasa por `damageBonuses` (que sabe de grupos de arma) y la
+ * iniciativa por su propio bloque (que sabe del predicado de Percepción).
+ * Sin eso se contarían dos veces.
+ */
+export function modificadoresDeReglas(
+  items: { name: string; rules?: ReglaEfecto[] }[],
+  selectores: string[],
+  ignorar: string[] = [],
+): Modifier[] {
   const salida: Modifier[] = [];
-  for (const efecto of activos) {
-    for (const regla of efecto.rules) {
+  for (const item of items) {
+    for (const regla of item.rules ?? []) {
       if (!esAplicable(regla)) continue;
 
-      const propios = selectoresDe(regla);
+      const propios = selectoresDe(regla).filter((s) => !ignorar.includes(s));
       // 'all-skills' es el comodín de skill-check: pega en cualquier skill:<x>.
       const pega =
         propios.some((s) => selectores.includes(s)) ||
         (propios.includes('all-skills') && selectores.some((s) => s.startsWith('skill:')));
       if (!pega) continue;
 
-      salida.push(mod(nombreCorto(efecto), valorDe(regla)!, tipoDe(regla.type)));
+      salida.push(mod(item.name, valorDe(regla)!, tipoDe(regla.type)));
     }
   }
   return salida;
+}
+
+/** Los modificadores que aportan los efectos activos para un selector dado. */
+export function effectModifiers(activos: Effect[], selectores: string[]): Modifier[] {
+  return modificadoresDeReglas(
+    activos.map((e) => ({ name: nombreCorto(e), rules: e.rules })),
+    selectores,
+  );
 }
 
 /**

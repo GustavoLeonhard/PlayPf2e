@@ -1,4 +1,4 @@
-import type { AbilityBoosts, CharacterBuild, CharacterState, CustomItem } from '../models/character.model';
+import type { AbilityBoosts, CharacterBuild, CharacterState, CustomItem, InventoryItem } from '../models/character.model';
 import type {
   Ability,
   Ancestry,
@@ -14,7 +14,7 @@ import type {
 } from '../models/content.model';
 import { ABILITIES, ABILITY_NAMES, PROFICIENCY_NAMES } from '../models/content.model';
 import { conditionModifiers } from './conditions';
-import { effectModifiers, type Effect } from './efectos';
+import { effectModifiers, modificadoresDeReglas, type Effect, type ReglaEfecto } from './efectos';
 import { eleccionesAbiertasDe, eleccionesDe, textoDeEleccion, type EleccionDeRasgo } from './elecciones';
 import { RAGE_SLUG, rageDamage, rageSheet, type RageSheet } from './rabia';
 import { buildStat, mod, type Modifier, type Stat } from './modifiers';
@@ -81,7 +81,9 @@ function equipadoConCustom(
           hardness: snapshot!.hardness ?? null,
           maxHp: snapshot!.maxHp ?? null,
           type: snapshot!.category === 'shield' ? 'shield' : 'armor',
-          runes: SIN_RUNAS,
+          capacidad: null,
+      bulkIgnorado: null,
+      runes: SIN_RUNAS,
       material: null,
     } as Equipment);
 
@@ -310,7 +312,15 @@ export interface CharacterSheet {
    * hasta 5 + Fuerza sin penalidad, y no podes cargar mas de 10 + Fuerza.
    * Los objetos "L" (livianos) valen 0.1 cada uno, como los trae el dataset.
    */
-  bulk: { carried: number; encumberedAt: number; max: number; encumbered: boolean; ignorado: boolean };
+  bulk: {
+    carried: number;
+    encumberedAt: number;
+    max: number;
+    encumbered: boolean;
+    ignorado: boolean;
+    /** Bulk que no cuenta por los contenedores que llevás puestos. */
+    alivio: number;
+  };
   /** Vision de la ancestria: normal, low-light-vision o darkvision. */
   vision: string;
   /**
@@ -934,9 +944,27 @@ export function computeCharacter(
     .map((e) => content.effectById.get(e.id))
     .filter((e): e is Effect => !!e);
 
+  /*
+   * Los rasgos y dotes activos también aportan modificadores planos, y hasta
+   * ahora nadie los leía: Fleet declara `land-speed +5` igual que Longstrider,
+   * pero solo el efecto se aplicaba. Eran 116 modificadores perdidos, 42 de
+   * ellos a salvaciones.
+   *
+   * Se dejan afuera los dos selectores que el motor ya resuelve por su cuenta,
+   * o se contarían dos veces.
+   */
+  const YA_RESUELTOS = ['damage', 'initiative'];
+  const bonusDeRasgos = (selectores: string[]): Modifier[] =>
+    modificadoresDeReglas(
+      [...activeFeatures, ...chosenFeats].map((f) => ({ name: f.name, rules: f.rules as ReglaEfecto[] })),
+      selectores,
+      YA_RESUELTOS,
+    );
+
   const situacion = (selectores: string[]): Modifier[] => [
     ...conditionModifiers(state, selectores),
     ...effectModifiers(efectosActivos, selectores),
+    ...bonusDeRasgos(selectores),
   ];
   const level = build.level;
 
@@ -1405,7 +1433,9 @@ export function computeCharacter(
     speedPenalty: null,
     hardness: null,
     maxHp: null,
-    runes: SIN_RUNAS,
+    capacidad: null,
+      bulkIgnorado: null,
+      runes: SIN_RUNAS,
       material: null,
     } as Equipment;
 
@@ -1445,6 +1475,8 @@ export function computeCharacter(
       speedPenalty: null,
       hardness: null,
       maxHp: null,
+      capacidad: null,
+      bulkIgnorado: null,
       runes: SIN_RUNAS,
       material: null,
     } as Equipment;
@@ -1499,7 +1531,9 @@ export function computeCharacter(
             speedPenalty: null,
             hardness: null,
             maxHp: null,
-            runes: SIN_RUNAS,
+            capacidad: null,
+      bulkIgnorado: null,
+      runes: SIN_RUNAS,
       material: null,
     } as Equipment);
 
@@ -1714,10 +1748,33 @@ export function computeCharacter(
    */
 
   // --- carga
-  const carriedBulk = build.inventory.reduce((total, item) => {
-    const bulkUnitario = content.equipmentById.get(item.id)?.bulk ?? item.custom?.bulk ?? 0;
-    return total + bulkUnitario * (item.quantity || 1);
+  const bulkDe = (item: InventoryItem) =>
+    (content.equipmentById.get(item.id)?.bulk ?? item.custom?.bulk ?? 0) * (item.quantity || 1);
+
+  const bulkBruto = build.inventory.reduce((total, item) => total + bulkDe(item), 0);
+
+  /*
+   * Contenedores. La mochila lo dice con todas las letras: "sostiene hasta 4 de
+   * bulk y los primeros 2 no cuentan". Sin esto la hoja decía que ibas cargado
+   * cuando no lo estabas — y 2 sobre un presupuesto de 6 es un tercio.
+   *
+   * No se modela QUÉ hay adentro de cada contenedor: se aplica el alivio contra
+   * lo que llevás guardado (lo NO equipado), que es lo que puede estar en la
+   * mochila. La armadura puesta y el arma en la mano no entran ahí.
+   */
+  const guardado = build.inventory
+    .filter((i) => !i.equipped)
+    .reduce((total, item) => total + bulkDe(item), 0);
+
+  const alivioDeContenedores = build.inventory.reduce((total, item) => {
+    const equipo = content.equipmentById.get(item.id);
+    // Solo alivia el que llevás puesto: una mochila guardada no sirve de nada.
+    if (!equipo?.bulkIgnorado || !item.equipped) return total;
+    return total + Math.min(equipo.bulkIgnorado, equipo.capacidad ?? equipo.bulkIgnorado) * (item.quantity || 1);
   }, 0);
+
+  const alivio = Math.min(alivioDeContenedores, guardado);
+  const carriedBulk = Math.max(0, bulkBruto - alivio);
 
   const encumberedAt = 5 + mods.str;
   const maxBulk = 10 + mods.str;
@@ -1882,7 +1939,14 @@ export function computeCharacter(
     lores,
     initiative: { options: initiativeOptions, conditional: initiativeConditional },
     money: { startingCp: STARTING_MONEY_CP, spentCp, remainingCp: STARTING_MONEY_CP - spentCp },
-    bulk: { carried: Math.round(carriedBulk * 10) / 10, encumberedAt, max: maxBulk, encumbered, ignorado: ignoraBulk },
+    bulk: {
+      carried: Math.round(carriedBulk * 10) / 10,
+      encumberedAt,
+      max: maxBulk,
+      encumbered,
+      ignorado: ignoraBulk,
+      alivio: Math.round(alivio * 10) / 10,
+    },
     // El master puede pisar la visión de la ancestría (una maldición, un rasgo
     // que no está modelado, un ojo perdido en la mesa).
     vision: build.visionOverride ?? ancestry?.vision ?? 'normal',

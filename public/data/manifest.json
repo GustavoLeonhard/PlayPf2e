@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T22:15:47.371Z",
+  "generatedAt": "2026-08-22T20:59:54.362Z",
   "source": "pf2e-legacy-content",
   "packs": {
     "classes": {
@@ -36,7 +36,7 @@
     },
     "equipment": {
       "count": 4563,
-      "kb": 5871
+      "kb": 6036
     },
     "deities": {
       "count": 275,

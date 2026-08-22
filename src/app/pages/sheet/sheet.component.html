@@ -861,6 +861,9 @@
                     <span class="inv-name">
                       {{ dote.name }}
                       <small class="muted">nv {{ dote.level }}</small>
+                      @if (porTexto(dote, doteSearch())) {
+                        <span class="tag" title="Coincide por su descripción, no por el nombre">en el texto</span>
+                      }
                       @if (dote.description) {
                         <button
                           class="info"

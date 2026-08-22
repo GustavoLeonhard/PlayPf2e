@@ -391,6 +391,13 @@ const mapEquipment = (d) => ({
   level: d.system.level?.value ?? 0,
   price: d.system.price?.value ?? null,
   bulk: d.system.bulk?.value ?? 0,
+  /*
+   * Contenedores. La mochila dice, con todas las letras: "sostiene hasta 4 de
+   * bulk y los primeros 2 no cuentan". Sin estos dos campos la hoja te decia
+   * que ibas cargado cuando no lo estabas.
+   */
+  capacidad: d.system.bulk?.capacity ?? null,
+  bulkIgnorado: d.system.bulk?.ignored ?? null,
   usage: d.system.usage?.value ?? '',
   // datos propios de armas / armaduras (ausentes en el resto)
   damage: d.system.damage ?? null,

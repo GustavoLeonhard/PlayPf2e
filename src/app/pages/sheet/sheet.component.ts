@@ -23,6 +23,7 @@ import { formatCp, priceToCp, splitCp } from '../../core/rules/money';
 import { castableRanks, scaledDamage } from '../../core/rules/spellcasting';
 import { SKILLS } from '../../core/rules/tables';
 import { computeCharacter, slug, type ContentIndex, type FeatSource, type StrikeSheet } from '../../core/rules/character.engine';
+import { buscar, coincidePorTexto } from '../../core/rules/buscar';
 import { avisosDe, esAplicable, nombreCorto, selectoresDe, valorDe, type Effect } from '../../core/rules/efectos';
 import type { EleccionDeRasgo, OpcionDeEleccion } from '../../core/rules/elecciones';
 import { efectoAMano, seCalcula } from '../../core/rules/efectos-a-mano';
@@ -530,6 +531,14 @@ export class SheetComponent implements OnInit {
 
   esSkillDeClase = (slug: string) => !!this.record()?.build.trainedSkills.includes(slug);
 
+  /**
+   * Si el resultado entró por su descripción y no por su nombre.
+   *
+   * Se marca porque si no parece ruido: buscás "firearm" y aparece algo que no
+   * dice "firearm" en el título, y no se entiende por qué está ahí.
+   */
+  porTexto = (item: { name: string; description?: string }, termino: string) => coincidePorTexto(item, termino);
+
   /** Cuántas decisiones de habilidad quedan sin tomar, para el aviso del botón. */
   readonly eleccionesDeSkillPendientes = computed(() => {
     const sinHerencia = this.heritageSkillChoices().length && !this.record()?.build.heritageSkill ? 1 : 0;
@@ -866,7 +875,7 @@ export class SheetComponent implements OnInit {
     );
     const trait = source === 'class' ? build.class : source === 'ancestry' ? build.ancestry : null;
 
-    return [...index.featById.values()]
+    const porCategoria = [...index.featById.values()]
       .filter((f) => source === 'bonus' || f.category === source)
       .filter((f) => f.level <= build.level)
       .filter((f) => !f.onlyLevel1 || build.level === 1)
@@ -875,8 +884,11 @@ export class SheetComponent implements OnInit {
         if (source === 'class' && isArchetypeFeat(f)) return archetypeFeatAvailable(f, owned);
         return !trait || f.traits.includes(trait);
       })
-      .filter((f) => !busqueda || f.name.toLowerCase().includes(busqueda))
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    // La búsqueda va al final y NO reordena después: `buscar` pone primero lo
+    // que coincide por nombre, y eso es lo que se quiere ver arriba.
+    return buscar(porCategoria, busqueda);
   }
 
   /**
@@ -1654,7 +1666,7 @@ export class SheetComponent implements OnInit {
     if (q.length < 2) return [];
     const equipo = this.index()?.equipmentById;
     if (!equipo) return [];
-    return [...equipo.values()].filter((e) => e.name.toLowerCase().includes(q)).slice(0, 25);
+    return buscar([...equipo.values()], q).slice(0, 25);
   });
 
   priceOf = (item: Equipment) => priceToCp(item.price);
@@ -2043,9 +2055,12 @@ export class SheetComponent implements OnInit {
   readonly effectResults = computed(() => {
     const q = this.effectQuery().trim().toLowerCase();
     if (q.length < 2) return [];
-    return this.effectList()
-      .filter((e) => nombreCorto(e).toLowerCase().includes(q))
-      .slice(0, 40);
+    // El nombre del efecto se muestra sin el prefijo "Effect:", así que se
+    // busca contra ESE nombre y no contra el crudo.
+    return buscar(
+      this.effectList().map((e) => ({ ...e, name: nombreCorto(e) })),
+      q,
+    ).slice(0, 40);
   });
 
   nombreCorto = nombreCorto;

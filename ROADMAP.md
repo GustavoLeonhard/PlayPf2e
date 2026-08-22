@@ -1162,3 +1162,40 @@ números. Con la duda, mejor nombrarla.
 
 El aviso se puede marcar como resuelto, como cualquier otro, para el que ya lo
 anotó en su ficha de papel.
+
+### 4-undequadragies. Buscar en el texto, Fleet, y la mochila
+
+**Buscar por descripción además de por nombre** (`rules/buscar.ts`), en los tres
+buscadores: dotes, objetos y efectos. Buscar solo por nombre obliga a saber cómo
+se llama lo que buscás; escribir "firearm" y no encontrar nada, con treinta
+dotes que hablan de armas de fuego, es la diferencia entre un catálogo y un
+índice. El nombre pesa más que el texto —si escribís "fleet" querés la dote
+Fleet primero— y los que entran por descripción se marcan **"en el texto"**,
+porque si no parecen ruido.
+
+**Fleet no era ni el dataset ni el importador.** La regla estaba bien
+importada: `FlatModifier land-speed +5`. Lo que faltaba era que **el motor
+nunca consumía los `FlatModifier` de rasgos y dotes** — solo los de condiciones
+y efectos. Eran **116 modificadores perdidos**, 42 de ellos a salvaciones, 14 a
+velocidad.
+
+El arreglo reusa la maquinaria de los efectos: el pack los escribe igual y el
+vocabulario de selectores es el mismo, así que `modificadoresDeReglas` sirve
+para los dos. Se excluyen `damage` e `initiative`, que el motor ya resuelve por
+su cuenta (uno sabe de grupos de arma, el otro del predicado de Percepción) y
+si no se contarían dos veces.
+
+**Y un bug escondido detrás**: `esAplicable` descartaba toda regla con
+`predicate`, pero el importador de dotes SIEMPRE escribe `predicate: []`, y un
+array vacío es truthy. Fleet quedaba descartada como si tuviera condiciones. Los
+efectos no lo notaban porque su importador omite el campo cuando está vacío.
+
+**La carga: la fórmula estaba bien, faltaba la mochila.** 5 + Fuerza y 10 +
+Fuerza son los números del CRB. Lo que faltaba lo dice el propio pack en el
+campo que no importábamos: `capacity: 4, ignored: 2` — *"sostiene hasta 4 de
+bulk y los primeros 2 no cuentan"*. Sobre un presupuesto de 6, eso es un tercio.
+
+No se modela QUÉ hay dentro de cada contenedor: el alivio se aplica contra lo
+que llevás **guardado** (lo no equipado), que es lo que puede estar en la
+mochila. La armadura puesta y el arma en la mano no reciben alivio, y una
+mochila guardada no alivia nada.

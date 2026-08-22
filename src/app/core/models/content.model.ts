@@ -143,6 +143,9 @@ export interface Equipment extends ContentBase {
   level: number;
   price: Price | null;
   bulk: number;
+  /** Contenedores: cuánto bulk entra, y cuánto de eso no cuenta. */
+  capacidad: number | null;
+  bulkIgnorado: number | null;
   usage: string;
   damage: { dice: number; die: string; damageType: string } | null;
   /** Alcance en pies; si tiene valor, el arma es a distancia. */

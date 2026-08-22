@@ -2262,3 +2262,89 @@ describe('elecciones que la app no sabe ofrecer', () => {
     expect(sheet.warnings.some((w) => /todavía no sabe ofrecer esa lista/i.test(w.text ?? String(w)))).toBe(false);
   });
 });
+
+describe('modificadores planos de rasgos y dotes', () => {
+  it('Fleet sube la velocidad: la regla estaba en el pack y nadie la leía', () => {
+    const fleet = feats.find((f) => f.name === 'Fleet')!;
+    const build = humanFighter();
+    const base = computeCharacter(build, emptyState(), content);
+
+    build.choices.push({ level: 1, slot: 'generalFeat', id: fleet.id });
+    const conFleet = computeCharacter(build, emptyState(), content);
+
+    expect(conFleet.speed.total).toBe(base.speed.total + 5);
+    expect(conFleet.speed.breakdown.some((m) => m.source === 'Fleet')).toBe(true);
+  });
+
+  it('no cuenta dos veces el daño, que ya lo resuelve damageBonuses', () => {
+    // Si `situacion(['damage'])` leyera también las dotes, el bonus se sumaría
+    // por los dos caminos. Los selectores ya resueltos quedan excluidos.
+    const conDano = feats.find(
+      (f) => f.rules?.some((r) => r.key === 'FlatModifier' && r.selector === 'strike-damage' && !r.predicate?.length),
+    );
+    if (!conDano) return;
+
+    const espada = equipment.find((e) => e.slug === 'longsword')!;
+    const build = humanFighter(8);
+    build.inventory = [{ id: espada.id, quantity: 1, equipped: true }];
+    const base = computeCharacter(build, emptyState(), content);
+
+    build.choices.push({ level: 1, slot: 'classFeat', id: conDano.id });
+    const conDote = computeCharacter(build, emptyState(), content);
+
+    const dmg = (s: typeof base) => s.strikes.find((x) => x.name === espada.name)!.damage.total;
+    const regla = conDano.rules!.find((r) => r.key === 'FlatModifier' && r.selector === 'strike-damage')!;
+    expect(dmg(conDote)).toBe(dmg(base) + (regla.value as number));
+  });
+});
+
+describe('carga y contenedores', () => {
+  const mochila = () => equipment.find((e) => e.slug === 'backpack')!;
+
+  it('una mochila puesta descuenta el bulk que ignora', () => {
+    const armadura = equipment.find((e) => e.slug === 'chain-mail')!; // 2 de bulk
+    const build = humanFighter();
+    build.inventory = [
+      { id: armadura.id, quantity: 3, equipped: false },
+      { id: mochila().id, quantity: 1, equipped: true },
+    ];
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    // 6 de bulk guardado, menos los 2 que la mochila ignora.
+    expect(sheet.bulk.alivio).toBe(2);
+    expect(sheet.bulk.carried).toBe(4);
+  });
+
+  it('el alivio nunca supera lo que llevás guardado', () => {
+    const build = humanFighter();
+    build.inventory = [{ id: mochila().id, quantity: 1, equipped: true }];
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.bulk.carried).toBe(0);
+    expect(sheet.bulk.alivio).toBe(0);
+  });
+
+  it('una mochila guardada no alivia nada: tiene que estar puesta', () => {
+    const armadura = equipment.find((e) => e.slug === 'chain-mail')!;
+    const build = humanFighter();
+    build.inventory = [
+      { id: armadura.id, quantity: 3, equipped: false },
+      { id: mochila().id, quantity: 1, equipped: false },
+    ];
+
+    expect(computeCharacter(build, emptyState(), content).bulk.alivio).toBe(0);
+  });
+
+  it('lo equipado no entra en la mochila: la armadura puesta no recibe alivio', () => {
+    const armadura = equipment.find((e) => e.slug === 'chain-mail')!;
+    const build = humanFighter();
+    build.inventory = [
+      { id: armadura.id, quantity: 1, equipped: true },
+      { id: mochila().id, quantity: 1, equipped: true },
+    ];
+
+    const sheet = computeCharacter(build, emptyState(), content);
+    expect(sheet.bulk.alivio).toBe(0);
+    expect(sheet.bulk.carried).toBe(2);
+  });
+});
