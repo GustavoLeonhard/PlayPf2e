@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal, type OnInit } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, type OnInit } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
@@ -29,7 +29,10 @@ import type { EleccionDeRasgo, OpcionDeEleccion } from '../../core/rules/eleccio
 import { efectoAMano, seCalcula } from '../../core/rules/efectos-a-mano';
 import { RAGE_SLUG, rageSheet } from '../../core/rules/rabia';
 import { signed, type Stat } from '../../core/rules/modifiers';
+import { mapPenalty, tirarAtaque, tirarChequeo } from '../../core/rules/tiradas';
 import { CharacterService } from '../../core/services/character.service';
+import { PartyChatService } from '../../core/services/party-chat.service';
+import { PartyService } from '../../core/services/party.service';
 import { AccordionComponent } from '../../shared/accordion.component';
 import { AccordionStateService } from '../../shared/accordion-state.service';
 import { RankSelectComponent } from '../../shared/rank-select.component';
@@ -89,6 +92,8 @@ type GrupoProf = 'skills' | 'strikes' | 'defenses';
 export class SheetComponent implements OnInit {
   private content = inject(ContentService);
   private accordionState = inject(AccordionStateService);
+  private parties = inject(PartyService);
+  private chat = inject(PartyChatService);
   private characters = inject(CharacterService);
 
   /** Viene del router (withComponentInputBinding). */
@@ -157,6 +162,23 @@ export class SheetComponent implements OnInit {
   }
 
   /** El input `id` viene del router: no esta disponible en el constructor. */
+  constructor() {
+    /*
+     * Cada tirada nueva se publica en la mesa. Va acá y no en las doce cosas
+     * que tiran: cualquiera que agregue una tirada mañana la publica sin
+     * enterarse de que existe el chat.
+     *
+     * El `null` es cerrar el cartel, no una tirada.
+     */
+    let ultima: RollResult | null = null;
+    effect(() => {
+      const roll = this.lastRoll();
+      if (!roll || roll === ultima) return;
+      ultima = roll;
+      this.publicar(roll);
+    });
+  }
+
   ngOnInit() {
     void this.load();
   }
@@ -171,6 +193,11 @@ export class SheetComponent implements OnInit {
     void this.content.conditions().then((c) => this.conditionList.set(c));
     void this.content.effects().then((e) => this.effectList.set(e));
     void this.content.deities().then((d) => this.deityList.set(d));
+    // Si el PJ está en una mesa, sus tiradas se ven ahí.
+    void this.parties
+      .partyOfCharacter(this.id())
+      .then((p) => this.partidaDelPj.set(p))
+      .catch(() => this.partidaDelPj.set(null));
     this.index.set(index);
     const record = await this.characters.get(this.id());
     if (record) {
@@ -992,15 +1019,7 @@ export class SheetComponent implements OnInit {
   // ------------------------------------------------------------- tiradas
 
   roll(label: string, stat: Stat) {
-    const die = 1 + Math.floor(Math.random() * 20);
-    const total = die + stat.total;
-    this.lastRoll.set({
-      label,
-      die,
-      modifier: stat.total,
-      total,
-      crit: die === 20 ? 'success' : die === 1 ? 'failure' : null,
-    });
+    this.lastRoll.set(tirarChequeo(label, stat));
   }
 
   /**
@@ -1018,50 +1037,11 @@ export class SheetComponent implements OnInit {
    * OJO: esto es una regla escrita a mano, no sale del dataset. Falta confirmarla
    * contra la fuente Legacy del proyecto.
    */
-  mapPenalty(strike: StrikeSheet, ataque: number): number {
-    if (ataque <= 1) return 0;
-    const agil = strike.traits.includes('agile');
-    return ataque === 2 ? (agil ? -4 : -5) : agil ? -8 : -10;
-  }
+  // El MAP lo usa la plantilla para pintar el 2do y 3er ataque.
+  mapPenalty = mapPenalty;
 
   rollStrike(strike: StrikeSheet, ataque = 1) {
-    const map = this.mapPenalty(strike, ataque);
-    const die = 1 + Math.floor(Math.random() * 20);
-    const dados = strike.damageDice.match(/^(\d+)d(\d+)$/);
-    const mods = strike.damage.total;
-
-    const normal = dados ? rollFormula(strike.damageDice) : { total: 0, detail: '', formula: '' };
-    const totalNormal = normal.total + mods;
-
-    let critico = totalNormal * 2;
-    let detalleCritico = `(${normal.detail}${mods ? ' ' + signed(mods) : ''}) ×2`;
-
-    if (strike.fatal && dados) {
-      // Se vuelve a tirar con el dado grande: es lo que hace fatal.
-      const conFatal = rollFormula(`${dados[1]}${strike.fatal}`);
-      const extra = rollFormula(`1${strike.fatal}`);
-      critico = (conFatal.total + mods) * 2 + extra.total;
-      detalleCritico = `fatal ${strike.fatal}: (${conFatal.detail}${mods ? ' ' + signed(mods) : ''}) ×2 + ${extra.detail} del dado extra`;
-    } else if (strike.deadly) {
-      const extra = rollFormula(`1${strike.deadly}`);
-      critico += extra.total;
-      detalleCritico = `(${normal.detail}${mods ? ' ' + signed(mods) : ''}) ×2 + ${extra.detail} de deadly ${strike.deadly}`;
-    }
-
-    this.lastRoll.set({
-      label: ataque > 1 ? `${strike.name} (${ataque}º ataque, MAP ${map})` : strike.name,
-      die,
-      modifier: strike.attack.total + map,
-      total: die + strike.attack.total + map,
-      crit: die === 20 ? 'success' : die === 1 ? 'failure' : null,
-      damage: {
-        detail: `${normal.detail}${mods ? ' ' + signed(mods) : ''}`,
-        total: totalNormal,
-        critical: critico,
-        criticalDetail: detalleCritico,
-        type: strike.damageType,
-      },
-    });
+    this.lastRoll.set(tirarAtaque(strike, ataque));
   }
 
   // ------------------------------------------------------------- conjuros
@@ -1457,6 +1437,34 @@ export class SheetComponent implements OnInit {
 
     return salida;
   });
+
+  /**
+   * La partida de este personaje, si está en una.
+   *
+   * Toda tirada suya se publica ahí: da igual si la hacés desde la mesa, desde
+   * la hoja en la compu o desde el teléfono. Una regla sola, sin estado que
+   * entender ni nada que acordarse de prender.
+   */
+  readonly partidaDelPj = signal<string | null>(null);
+
+  /** Quién ve la próxima tirada. Se elige antes de tirar, como el garbo. */
+  readonly visibilidadDeTirada = signal<'todos' | 'master' | 'yo'>('todos');
+
+  /**
+   * Manda la tirada a la mesa, si hay mesa.
+   *
+   * Se llama desde un solo lugar —el setter de `lastRoll`— para no tener que
+   * acordarse en cada una de las doce cosas que tiran.
+   */
+  private publicar(roll: RollResult) {
+    const partida = this.partidaDelPj();
+    if (!partida) return;
+    void this.chat
+      .publicarTirada(partida, roll, this.visibilidadDeTirada())
+      .catch(() => {
+        // Que falle el chat no puede romper la tirada: ya la viste en la hoja.
+      });
+  }
 
   /** La ficha abierta, o null. Se muestra como el resultado de una tirada. */
   readonly ficha = signal<Ficha | null>(null);

@@ -38,3 +38,69 @@ export interface Profile {
   id: string;
   display_name: string;
 }
+
+/**
+ * Un mensaje de la mesa.
+ *
+ * El chat y las tiradas son lo mismo con distinto contenido: van en la misma
+ * tabla para que queden ordenados entre sí sin cruzar dos consultas.
+ */
+export interface PartyMessage {
+  id: string;
+  party_id: string;
+  author_id: string;
+  kind: 'texto' | 'tirada';
+  body: string;
+  /** El RollResult completo, para poder pintarlo igual que en la hoja. */
+  roll: RollPayload | null;
+  visibility: 'todos' | 'master' | 'yo';
+  created_at: string;
+}
+
+/**
+ * La tirada tal como se guarda.
+ *
+ * Es una copia del RollResult de la hoja, no una referencia: si mañana cambia
+ * el cálculo, lo que quedó en el historial tiene que seguir diciendo lo que
+ * dijo esa noche.
+ */
+export interface RollPayload {
+  label: string;
+  die: number;
+  modifier: number;
+  total: number;
+  crit: 'success' | 'failure' | null;
+  damage?: { detail: string; total: number; critical: number; criticalDetail: string; type: string };
+  dc?: number;
+  save?: string;
+  /**
+   * El desglose de una tirada suelta (un d20 pelado, un 2d6+3).
+   *
+   * Va aparte de `save`: meterlo ahí "porque el hueco estaba libre" hacía que
+   * el chat la tratara como una salvación y no mostrara el total.
+   */
+  detalle?: string;
+}
+
+/** Un mensaje con quién lo escribió, listo para mostrar. */
+export interface PartyMessageView extends PartyMessage {
+  authorName: string;
+  authorAvatar: string;
+  mine: boolean;
+}
+
+/**
+ * Una nota de la mesa.
+ *
+ * Compartida: la ve y la edita cualquiera de la partida. El título es para
+ * encontrarla —va en el tooltip de su icono— y el cuerpo es texto libre.
+ */
+export interface PartyNote {
+  id: string;
+  party_id: string;
+  author_id: string;
+  title: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}

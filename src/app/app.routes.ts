@@ -41,6 +41,29 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/party-list/party-list.component').then((m) => m.PartyListComponent),
   },
   {
+    // Una nota sacada afuera. Va antes que la genérica porque tiene un
+    // segmento más y Angular resuelve por orden.
+    path: 'parties/:id/ventana/nota/:notaId',
+    canActivate: [authGuard],
+    // El tipo no sale de la URL acá —el segmento lo ocupa el id— así que se
+    // pasa por `data`, que el binding de inputs también resuelve.
+    data: { tipo: 'nota' },
+    loadComponent: () => import('./pages/mesa/ventana-suelta.component').then((m) => m.VentanaSueltaComponent),
+  },
+  {
+    // Una ventana sacada afuera. Es la misma que vive en el lienzo, sola.
+    path: 'parties/:id/ventana/:tipo',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/mesa/ventana-suelta.component').then((m) => m.VentanaSueltaComponent),
+  },
+  {
+    // La mesa: donde se juega. Va antes de 'parties/:id' no por precedencia
+    // —Angular ya distingue— sino para que se lean juntas.
+    path: 'parties/:id/mesa',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/mesa/mesa.component').then((m) => m.MesaComponent),
+  },
+  {
     path: 'parties/:id',
     canActivate: [authGuard],
     loadComponent: () => import('./pages/party/party.component').then((m) => m.PartyComponent),

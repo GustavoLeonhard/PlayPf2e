@@ -231,6 +231,25 @@
         }
       </div>
 
+      <!--
+        Solo aparece si el PJ está en una mesa: para quien juega solo, elegir
+        quién ve una tirada no significa nada.
+      -->
+      @if (partidaDelPj()) {
+        <div class="card mini cond">
+          <span class="label muted">Tiradas</span>
+          <select
+            class="deidad-select"
+            [value]="visibilidadDeTirada()"
+            (change)="visibilidadDeTirada.set($any($event.target).value)"
+          >
+            <option value="todos">Las ve la mesa</option>
+            <option value="master">Solo el máster</option>
+            <option value="yo">Solo yo</option>
+          </select>
+        </div>
+      }
+
       <div class="card mini cond">
         <span class="label muted">Condiciones</span>
         <button class="btn" (click)="showConditions.set(!showConditions())">

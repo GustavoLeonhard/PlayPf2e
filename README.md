@@ -78,7 +78,10 @@ Las 23 clases pre-remaster están importadas y se pueden elegir. El builder est�
 - **Ola 1 (hecha)** — marciales: Fighter, Barbarian, Rogue, Monk, Ranger, Champion, Gunslinger.
 - **Ola 2 (hecha)** — 10 de las 11 clases lanzadoras: Sorcerer, Bard, Oracle y Psychic
   (espontáneas) más Wizard, Cleric, Druid, Witch y Magus (preparadas).
-- **Ola 3** — Summoner (necesita el eidolon), focus spells, Alchemist, Kineticist.
+- **Ola 3** — Summoner (necesita el eidolon), Alchemist y Kineticist. Los focus spells ya están.
+
+Desde entonces se sumó **la mesa**: partidas, chat con tiradas en vivo, ventanas y notas
+compartidas. Ver [ROADMAP.md](ROADMAP.md).
 
 ### Conjuros
 
@@ -307,17 +310,19 @@ activables, cargas diarias o runas propias. Eso sería un motor de reglas homebr
 
 ### Limitaciones conocidas
 
+La lista viva está en [ROADMAP.md](ROADMAP.md). Las que más se notan al usar la app:
+
 - **Proficiencia por grupo de arma elegido.** El rule element `MartialProficiency` con predicado —el que
   usa Fighter Weapon Mastery para subir solo el grupo que elegiste— no se modela. Las proficiencias con
   nombre propio del dataset (`simple-firearms-crossbows` del Gunslinger) **sí** funcionan.
-- **Lores** salen del trasfondo; los que dan las dotes (Additional Lore) todavía no se pueden agregar.
-- El **inventario** es una lista simple: no hay bulk, dinero ni runas.
-- Los rule elements que modifican **velocidad** (Fleet, por ejemplo) no se aplican todavía.
-- **Casters preparados y focus spells** no están: son la ola 3.
 - El crítico duplica el daño entero. En PF2e el daño de salpicadura (Acid Splash) no se duplica.
 - Lanzar **no descuenta el slot automáticamente**: el consumo es manual, con el botón "gastar".
 - El heightening que **no es daño** no se modela: Magic Missile agrega proyectiles y el dataset no lo
   expresa como fórmula, así que su daño no cambia al subirlo de rango.
+- Hay **72 elecciones** que el pack describe con un filtro sobre otro pack entero ("una dote general de
+  nivel 7 o menos"): se avisan, pero la app todavía no puede ofrecer la lista.
+- Las **stances** y las runas de propiedad con bonus pasivo se listan pero no se calculan.
+
 
 ## Comandos
 

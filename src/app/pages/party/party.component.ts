@@ -27,7 +27,15 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
               {{ conectados() }} de {{ miembros().length }} conectados ahora
             </p>
           </div>
-          <a class="btn ghost" routerLink="/parties">Volver</a>
+          <div class="head-acciones">
+            <!--
+              La sala es para acomodarse; la mesa es para jugar. Separarlas deja
+              la invitación y el cambio de personaje fuera del medio mientras
+              estás en partida.
+            -->
+            <a class="btn primary" [routerLink]="['/parties', id(), 'mesa']">Sentarse a la mesa</a>
+            <a class="btn ghost" routerLink="/parties">Volver</a>
+          </div>
         </header>
 
         @if (error(); as e) {

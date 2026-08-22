@@ -259,3 +259,97 @@ $$;
 -- retrato del personaje: son 256x256 en JPEG, unos pocos KB. Montar Storage
 -- para eso seria mas piezas moviles de las que hacen falta.
 alter table public.profiles add column if not exists avatar text not null default '';
+
+
+-- ============================================================================
+-- FASE 2: el chat de la partida
+--
+-- El chat y las tiradas son LA MISMA cosa: un mensaje con distinto contenido.
+-- Tenerlos en una tabla los ordena juntos en el tiempo sin mezclar dos consultas.
+-- ============================================================================
+create table if not exists public.party_messages (
+  id         uuid primary key default gen_random_uuid(),
+  party_id   uuid not null references public.parties (id) on delete cascade,
+  author_id  uuid not null references auth.users (id) on delete cascade,
+  kind       text not null default 'texto' check (kind in ('texto', 'tirada')),
+  body       text not null default '',
+  -- El RollResult entero, no un texto ya armado: asi el chat puede mostrar la
+  -- tirada con el mismo formato que la hoja (total, desglose, dano, critico).
+  roll       jsonb,
+  -- Quien tira elige quien la ve. Se filtra ACA y no en el cliente: una tirada
+  -- privada que igual viaja al navegador del otro no es privada.
+  visibility text not null default 'todos' check (visibility in ('todos', 'master', 'yo')),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists party_messages_party_idx on public.party_messages (party_id, created_at);
+
+alter table public.party_messages enable row level security;
+
+-- Lectura: los de la mesa ven los publicos; los privados solo su autor, y los
+-- de 'master' tambien el que dirige.
+drop policy if exists "leer mensajes de mi mesa" on public.party_messages;
+create policy "leer mensajes de mi mesa" on public.party_messages
+  for select to authenticated
+  using (
+    public.is_party_member(party_id)
+    and (
+      visibility = 'todos'
+      or author_id = auth.uid()
+      or (visibility = 'master' and public.is_party_gm(party_id))
+    )
+  );
+
+-- Escritura: solo en mesas donde estas, y solo a tu nombre.
+drop policy if exists "escribir en mi mesa" on public.party_messages;
+create policy "escribir en mi mesa" on public.party_messages
+  for insert to authenticated
+  with check (public.is_party_member(party_id) and author_id = auth.uid());
+
+-- Borrar lo propio: un mensaje mandado por error. No se editan: en una mesa,
+-- reescribir una tirada pasada es justo lo que no se quiere poder hacer.
+drop policy if exists "borrar lo mio" on public.party_messages;
+create policy "borrar lo mio" on public.party_messages
+  for delete to authenticated using (author_id = auth.uid());
+
+-- Realtime: sin esto los mensajes llegan solo al recargar.
+alter publication supabase_realtime add table public.party_messages;
+
+
+-- ============================================================================
+-- FASE 2: las notas de la mesa
+--
+-- Todas compartidas por ahora. `author_id` se guarda igual desde el principio:
+-- cuando queramos notas propias es una politica de RLS, no una migracion
+-- adivinando quien escribio que.
+-- ============================================================================
+create table if not exists public.party_notes (
+  id         uuid primary key default gen_random_uuid(),
+  party_id   uuid not null references public.parties (id) on delete cascade,
+  author_id  uuid not null references auth.users (id) on delete cascade,
+  title      text not null default '',
+  body       text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists party_notes_party_idx on public.party_notes (party_id, updated_at desc);
+
+-- El trigger de updated_at ya existe (lo usa characters).
+drop trigger if exists party_notes_touch_updated_at on public.party_notes;
+create trigger party_notes_touch_updated_at
+  before update on public.party_notes
+  for each row execute function public.touch_updated_at();
+
+alter table public.party_notes enable row level security;
+
+-- Compartidas: cualquiera de la mesa lee, escribe y edita. Borrar tambien:
+-- una nota de la mesa no tiene dueno, y pedirle al autor que la borre seria
+-- trabarlo todo cuando esa persona no esta.
+drop policy if exists "notas de mi mesa" on public.party_notes;
+create policy "notas de mi mesa" on public.party_notes
+  for all to authenticated
+  using (public.is_party_member(party_id))
+  with check (public.is_party_member(party_id));
+
+alter publication supabase_realtime add table public.party_notes;

@@ -69,6 +69,35 @@ export class PartyService {
     }
   }
 
+  /**
+   * En qué partida está un personaje, si está en alguna.
+   *
+   * Un personaje se sienta en UNA mesa: es la decisión que tomamos cuando
+   * dijimos que cambiarlo tenía que ser algo excepcional.
+   */
+  /** Con qué personaje me senté en esta mesa. */
+  async myCharacterId(partyId: string): Promise<string | null> {
+    const yo = this.auth.userId();
+    if (!this.client || !yo) return null;
+    const { data } = await this.client
+      .from('party_members')
+      .select('character_id')
+      .eq('party_id', partyId)
+      .eq('user_id', yo)
+      .maybeSingle();
+    return (data?.character_id as string) ?? null;
+  }
+
+  async partyOfCharacter(characterId: string): Promise<string | null> {
+    if (!this.client) return null;
+    const { data } = await this.client
+      .from('party_members')
+      .select('party_id')
+      .eq('character_id', characterId)
+      .maybeSingle();
+    return (data?.party_id as string) ?? null;
+  }
+
   async get(id: string): Promise<Party | null> {
     const { data } = await this.client.from('parties').select('*').eq('id', id).single();
     return (data as Party) ?? null;
