@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-22T20:59:54.362Z",
+  "generatedAt": "2026-08-23T14:16:25.123Z",
   "source": "pf2e-legacy-content",
   "packs": {
     "classes": {
@@ -28,15 +28,18 @@
     },
     "feats": {
       "count": 4238,
-      "kb": 3457
+      "kb": 1592,
+      "descKb": 1955
     },
     "spells": {
       "count": 1520,
-      "kb": 1984
+      "kb": 671,
+      "descKb": 1345
     },
     "equipment": {
       "count": 4563,
-      "kb": 6036
+      "kb": 2668,
+      "descKb": 3462
     },
     "deities": {
       "count": 275,
@@ -48,7 +51,8 @@
     },
     "effects": {
       "count": 1418,
-      "kb": 1099
+      "kb": 599,
+      "descKb": 530
     }
   }
 }

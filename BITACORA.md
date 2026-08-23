@@ -1324,3 +1324,35 @@ Dos correcciones más del camino: un evento de Realtime viejo ya no pisa una
 fila más nueva (el INSERT de una nota recién creada puede llegar después de tu
 primer UPDATE y traía el cuerpo vacío), y la ruta de la nota suelta recibe su
 `tipo` por `data` porque el segmento de la URL lo ocupa el id.
+
+### Descripciones aparte
+
+Abrir una hoja bajaba **14,4 MB** (3,1 MB comprimidos). Midiendo de dónde salía
+el peso: **más de la mitad de todo es texto de descripción** — 3,3 MB de los 5,9
+de equipment, 1,8 de los 3,4 de feats, 1,3 de los 1,9 de spells.
+
+Y ese texto solo se usa en dos momentos: al abrir un ⓘ y al buscar por
+contenido. Abrir la hoja de un personaje no tiene por qué bajar la descripción
+de las 4563 piezas de equipo del catálogo.
+
+El importador ahora las emite en `<pack>-desc.json` (un mapa `id → texto`) para
+los cuatro packs grandes. Los chicos no se parten: `classes.json` son 56 KB y
+una petición más no ahorra nada.
+
+**El texto se le pega al objeto cuando llega**, en vez de cambiar los trece
+lugares que leen `.description`. Quien lo lee no tiene por qué saber que viaja
+aparte. Lo que sí hizo falta es una señal —`descripcionesListas`— de la que
+dependen los computed que muestran texto: mutar un objeto no despierta a un
+computed, y sin eso el ⓘ se quedaba vacío hasta el siguiente click.
+
+**Se pide solo lo que hace falta**: el ⓘ de un arma baja `equipment-desc`, el de
+un conjuro baja `spells-desc`. La primera versión pedía los cuatro de una y
+volvía a bajar los 7 MB apenas tocabas una ⓘ.
+
+El asistente es el caso opuesto y por eso pide de entrada: su panel derecho
+describe casi todo lo que ofrece.
+
+| | antes | ahora |
+|---|---|---|
+| Abrir una hoja | 14,4 MB (3,1 comprimidos) | **7,5 MB (1,2 comprimidos)** |
+| Abrir un ⓘ de dote | — | + 1,9 MB, una sola vez |

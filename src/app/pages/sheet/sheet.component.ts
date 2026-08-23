@@ -858,6 +858,15 @@ export class SheetComponent implements OnInit {
   readonly agregandoDote = signal<FeatSource | null>(null);
   readonly doteSearch = signal('');
 
+  /**
+   * Abrir un buscador pide el texto: buscar "firearm" solo sirve si el texto
+   * está. Se pide al abrir y no al tipear, para que ya esté cuando escribas.
+   */
+  abrirBuscador(donde: 'dotes' | 'objetos' | 'efectos') {
+    const packs = { dotes: ['feats'], objetos: ['equipment'], efectos: ['effects'] }[donde];
+    this.content.asegurarDescripciones(...packs);
+  }
+
   /*
    * Con qué slot se agrega una dote de cada grupo. El trasfondo no está: sus
    * dotes vienen con el trasfondo y no se agregan ni se sacan a mano.
@@ -1382,6 +1391,9 @@ export class SheetComponent implements OnInit {
    * un objeto podrían compartir id sin que eso signifique nada.
    */
   readonly fichas = computed(() => {
+    // Que las descripciones lleguen dispara este computed de nuevo.
+    this.content.descripcionesListas();
+
     const sheet = this.sheet();
     const index = this.index();
     const record = this.record();
@@ -1469,7 +1481,23 @@ export class SheetComponent implements OnInit {
   /** La ficha abierta, o null. Se muestra como el resultado de una tirada. */
   readonly ficha = signal<Ficha | null>(null);
 
+  /** Qué archivo de texto hace falta según qué se abrió. */
+  private static readonly PACK_DE_FICHA: Record<string, string> = {
+    item: 'equipment',
+    conjuro: 'spells',
+    efecto: 'effects',
+    dote: 'feats',
+    rasgo: 'feats',
+  };
+
   verFicha(clave: string) {
+    /*
+     * Solo el archivo que hace falta: abrir el ⓘ de un arma no tiene por qué
+     * bajar también el texto de los 1520 conjuros. Si todavía no llegó, la
+     * ficha se completa sola cuando llegue.
+     */
+    const pack = SheetComponent.PACK_DE_FICHA[clave.split(':')[0]];
+    if (pack) this.content.asegurarDescripciones(pack);
     const encontrada = this.fichas().get(clave);
     if (encontrada) this.ficha.set(encontrada);
   }
@@ -1670,6 +1698,7 @@ export class SheetComponent implements OnInit {
   });
 
   readonly searchResults = computed(() => {
+    this.content.descripcionesListas();
     const q = this.itemSearch().toLowerCase().trim();
     if (q.length < 2) return [];
     const equipo = this.index()?.equipmentById;
@@ -2061,6 +2090,7 @@ export class SheetComponent implements OnInit {
 
   /** El buscador: hace falta escribir algo, si no serían 1418 filas. */
   readonly effectResults = computed(() => {
+    this.content.descripcionesListas();
     const q = this.effectQuery().trim().toLowerCase();
     if (q.length < 2) return [];
     // El nombre del efecto se muestra sin el prefijo "Effect:", así que se

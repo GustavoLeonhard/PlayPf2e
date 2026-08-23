@@ -119,6 +119,14 @@ export class WizardComponent {
     void this.content.classFeatures().then((f) => this.classFeatures.set(f));
     void this.content.spells().then((s) => this.spells.set(s));
     void this.content.deities().then((d) => this.deities.set(d));
+
+    /*
+     * El asistente SÍ muestra el texto de casi todo lo que ofrece —el panel de
+     * la derecha describe la ancestría, la dote, el objeto— así que acá se pide
+     * de entrada. Es lo contrario de la hoja, donde solo hace falta al abrir
+     * un ⓘ, y por eso el pedido es explícito y no automático.
+     */
+    this.content.asegurarDescripciones('feats', 'equipment', 'spells');
   }
 
   // --------------------------------------------------------------- deidad

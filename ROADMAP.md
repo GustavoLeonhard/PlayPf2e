@@ -44,6 +44,10 @@ auth y Realtime. No hay servidor propio.
 
 ## Qué falta
 
+Dos listas distintas: **funcionalidad** (lo que la app todavía no hace) y
+**escalabilidad** (lo que va a hacer que agregar esa funcionalidad cueste caro).
+Si vas a encarar varias cosas de la primera lista, conviene hacer antes E1 y E2.
+
 ### 1. El máster ve las hojas
 
 Lo más pedido de lo que queda, y **el cambio más delicado del proyecto**: hoy la
@@ -105,11 +109,142 @@ dragón cambia el daño de los conjuros del linaje, que viven en otro lado.
   Una mesa quincenal lo va a encontrar pausado; se despausa a mano desde el
   dashboard.
 - **Las habilidades no tienen descripción**: no hay `skills.json` en el pack.
-  Haría falta importarlas de Archives of Nethys.
+  Entra en el overlay (E3).
 - **`invested`** está en el modelo y no lo lee nadie: los objetos que hay que
   invertir no están modelados.
+- Las descripciones viajan en `<pack>-desc.json` y se bajan bajo demanda: abrir
+  una hoja son 1,2 MB comprimidos en vez de 3,1. Ver la bitácora.
 - Quedan **13 descripciones** con un corchete suelto, y son corchetes reales del
   texto ("hammers [Strength]"), no un fallo del importador.
+
+---
+
+## Escalabilidad
+
+Dónde va a doler agregar lo que falta, medido y no supuesto. Están en orden de
+lo que más traba.
+
+### E1. Partir `computeCharacter`
+
+**Hoy son 1049 líneas en una sola función, con 90 `const` cruzándose.** Es el
+corazón del proyecto y el lugar donde aterriza *cada* regla nueva: las runas,
+la furia, los contenedores y el entrenamiento repetido entraron todos ahí. Cada
+una lo dejó un poco peor.
+
+Las costuras ya existen: dieciséis bloques marcados con comentarios (`--- CA`,
+`--- skills`, `--- strikes`…). El más grande, strikes, son 257 líneas.
+
+**El plan**: una tubería de etapas con un contexto explícito.
+
+```
+computeCharacter(build, state, content)
+  → contexto base (clase, ancestría, nivel, mods, efectos)
+  → etapas: defensas, skills, strikes, conjuros, carga, avisos
+  → hoja
+```
+
+Cada etapa recibe el contexto y devuelve su pedazo. Lo que hoy es una variable
+suelta a mitad de la función pasa a ser una entrada declarada.
+
+**Cómo se hace sin romper nada**: de a un bloque, corriendo los tests entre
+cada uno. Los 210 tests miran la salida de la hoja, no la forma de la función,
+así que un refactor que preserve los números se verifica solo. Se empieza por
+los independientes —dinero, carga, idiomas— y se termina por strikes, que es el
+que más cosas toca.
+
+**Se sabe que funcionó** cuando ninguna etapa pasa de 150 líneas y agregar una
+regla nueva significa tocar un archivo, no buscar en mil.
+
+### E2. Partir la hoja
+
+**2219 líneas de TypeScript, 2223 de plantilla, 88 métodos y 54 señales** en un
+solo componente. Cada sección nueva lo agranda, y ya cuesta encontrar dónde
+vive algo.
+
+Las costuras también existen y son los acordeones: Favoritos, Efectos,
+Atributos, Habilidades, Rasgos y dotes, Armadura, Ataques, Inventario. Cada uno
+puede ser un componente que recibe la hoja calculada y emite qué cambió.
+
+Se gana además algo concreto: **la vista de juego de la mesa podría reusar esos
+componentes** en vez de tener su propia versión reducida, que hoy es código
+paralelo esperando divergir.
+
+Empezar por Inventario o Rasgos y dotes, que son los más autónomos.
+
+### E3. El overlay: nuestros propios datos
+
+**No está descartado — es esto.** Y conviene separarlo de la idea de forkear:
+
+- **Forkear** el pack (copiar los 15 MB y editarlos) queda descartado: perdés
+  las correcciones de aguas arriba y mantenés todo el repo para cambiar 200
+  entradas.
+- **El overlay** es un archivo nuestro, chico, que el importador aplica encima
+  del pack. Eso sí va.
+
+**Y ya existe**: `runas.ts`, `efectos-a-mano.ts`, `rabia.ts`, `panache.ts` y
+`conditions.ts` son el dataset propio, solo que escrito en TypeScript. E3 no es
+construirlo, es **mudarlo a datos** cuando el volumen lo justifique.
+
+#### Qué entra
+
+Dos grupos, por razones distintas:
+
+**1. Lo que Foundry resuelve en código** y por eso no está como dato en ningún
+lado. Es el grueso: ~90 stances, ~34 runas de propiedad con bonus pasivo, la
+furia, el MAP.
+
+**2. Lo que no existe en ningún pack.** Más chico pero igual de real:
+
+- Las descripciones de las 16 habilidades: no hay `skills.json`, habría que
+  traerlas de Archives of Nethys.
+- La dureza y los PV de la armadura: el pack los trae en cero porque Foundry los
+  deriva del material en tiempo de ejecución. Los escudos sí los traen.
+- Las estadísticas del puño, hoy lo único de la hoja sin fuente verificada.
+- El tipo de dragón del linaje dracónico, que define el daño de sus conjuros y
+  no está enlazado en el dato.
+
+#### Qué NO entra
+
+El **comportamiento**. Que la furia dé la mitad con un arma agile, que striking
+multiplique dados, que el crítico con fatal cambie el tamaño del dado: eso son
+funciones, no filas. Las tablas se mudan; la lógica se queda en `rules/`.
+
+#### Cómo se enchufa
+
+Un archivo por tipo en `overlay/`, aplicado por el importador después de mapear
+el pack y antes de escribir el JSON. Con eso:
+
+- el overlay se ve en un diff, separado de los 15 MB del pack;
+- se valida contra un esquema, así una entrada mal escrita falla al importar y
+  no en la mesa;
+- se puede citar la fuente de cada regla en el propio dato, que es lo que hoy
+  vive suelto en un comentario.
+
+#### Cuándo
+
+**Después de E1.** El lugar donde el overlay se enchufa —dónde el motor lee una
+regla— es justamente lo que E1 ordena; hacerlo antes es mudar código dos veces.
+
+Y se arranca por **una sola stance de tu mesa**, no por las 90: que el formato
+lo decida un caso real y no una tabla vacía. Con la primera hecha, las demás son
+copiar la fila.
+
+### E4. Partir el spec
+
+**2350 líneas**, y crece con el motor. Se parte siguiendo a E1: un spec por
+etapa. Sin esto, cada regla nueva es más difícil de ubicar en el archivo que de
+escribir.
+
+### Lo que NO hay que hacer todavía
+
+- **Un backend para el dataset.** Hoy el dato es de solo lectura, va versionado
+  con la app y anda sin conexión. Un backend cambia búsqueda local instantánea
+  por una ida y vuelta por consulta y agrega una pieza móvil a un proyecto que
+  no tiene servidor propio. Cuando aparezca una razón real —compartir el
+  dataset con otra app, o editarlo sin desplegar— se reevalúa.
+- **Reescribir el importador.** Anda, está probado y los bugs que tuvo eran de
+  a una línea. No confundir "le encontramos seis fallos" con "está mal hecho":
+  los seis eran filtros de más, no arquitectura.
 
 ---
 

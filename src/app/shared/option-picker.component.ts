@@ -1,6 +1,7 @@
 import { Component, computed, input, model, signal } from '@angular/core';
 import { DomSanitizer } from '@angular/platform-browser';
 import { inject } from '@angular/core';
+import { ContentService } from '../core/services/content.service';
 
 /** Forma minima que necesita el picker; sirve para clases, feats, ancestrias, etc. */
 export interface PickerOption {
@@ -200,6 +201,7 @@ export interface PickerOption {
   `,
 })
 export class OptionPickerComponent {
+  private content = inject(ContentService);
   private sanitizer = inject(DomSanitizer);
 
   readonly options = input.required<PickerOption[]>();
@@ -216,8 +218,15 @@ export class OptionPickerComponent {
 
   readonly selected = computed(() => this.options().find((o) => o.id === this.selectedId()) ?? null);
 
-  /** El dataset trae HTML de Paizo ya limpiado por el importador. */
-  readonly safeDescription = computed(() =>
-    this.sanitizer.bypassSecurityTrustHtml(this.selected()?.description ?? ''),
-  );
+  /**
+   * El dataset trae HTML de Paizo ya limpiado por el importador.
+   *
+   * Depende de `descripcionesListas` porque el texto llega DESPUÉS que la
+   * lista: se le pega al objeto ya cargado, y mutar un objeto no despierta a
+   * un computed. Esa señal es la que avisa.
+   */
+  readonly safeDescription = computed(() => {
+    this.content.descripcionesListas();
+    return this.sanitizer.bypassSecurityTrustHtml(this.selected()?.description ?? '');
+  });
 }

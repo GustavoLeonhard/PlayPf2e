@@ -48,6 +48,53 @@ export class ContentService {
     return this.cache.get(pack) as Promise<T[]>;
   }
 
+  /*
+   * Las descripciones viven en `<pack>-desc.json` y se bajan aparte.
+   *
+   * Son más de la mitad del peso y solo hacen falta al abrir un ⓘ o al buscar
+   * por texto: abrir una hoja no tiene por qué bajar el texto de las 4563
+   * piezas de equipo.
+   *
+   * Cuando llegan se le pegan al objeto que ya está en memoria y se avisa con
+   * una señal. Se hace así, y no cambiando los trece lugares que leen
+   * `.description`, porque el que las lee no tiene por qué saber que viajan
+   * aparte — y el que las necesita ya las pidió.
+   */
+  private static readonly CON_TEXTO_APARTE = ['equipment', 'feats', 'spells', 'effects'] as const;
+
+  /** Sube cada vez que llega un lote de texto: los computed vuelven a correr. */
+  readonly descripcionesListas = signal(0);
+  private textoPedido = new Set<string>();
+
+  /**
+   * Pide el texto de esos packs si todavía no se pidió.
+   *
+   * No se espera el resultado a propósito: quien la llama quiere que el texto
+   * aparezca cuando llegue, no quedarse bloqueado. Un ⓘ abierto en el primer
+   * segundo se completa solo.
+   */
+  asegurarDescripciones(...packs: string[]): void {
+    for (const pack of packs) {
+      if (!ContentService.CON_TEXTO_APARTE.includes(pack as never)) continue;
+      if (this.textoPedido.has(pack)) continue;
+      this.textoPedido.add(pack);
+
+      void firstValueFrom(this.http.get<Record<string, string>>(`data/${pack}-desc.json`))
+        .then(async (textos) => {
+          const items = (await this.load<{ id: string; description: string }>(pack)) ?? [];
+          for (const item of items) {
+            const texto = textos[item.id];
+            if (texto) item.description = texto;
+          }
+          this.descripcionesListas.update((n) => n + 1);
+        })
+        .catch(() => {
+          // Sin el texto la app funciona: se ven los números y no la prosa.
+          this.textoPedido.delete(pack);
+        });
+    }
+  }
+
   classes = () => this.load<Pf2Class>('classes');
   ancestries = () => this.load<Ancestry>('ancestries');
   heritages = () => this.load<Heritage>('heritages');

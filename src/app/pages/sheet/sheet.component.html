@@ -552,6 +552,7 @@
               type="search"
               placeholder="Buscar un efecto (rage, longstrider, haste…)"
               [value]="effectQuery()"
+              (focus)="abrirBuscador('efectos')"
               (input)="effectQuery.set($any($event.target).value)"
             />
 
@@ -921,7 +922,9 @@
               </div>
             } @else if (grupo.key !== 'background') {
               <!-- Las del trasfondo vienen con el trasfondo: no se agregan. -->
-              <button class="btn ghost" (click)="agregandoDote.set(grupo.key)">+ Agregar</button>
+              <button class="btn ghost" (click)="agregandoDote.set(grupo.key); abrirBuscador('dotes')">
+                + Agregar
+              </button>
             }
           </app-accordion>
         }
@@ -1653,7 +1656,7 @@
         }
         </div>
 
-        <button class="btn ghost" (click)="addingItem.set(!addingItem())">
+        <button class="btn ghost" (click)="addingItem.set(!addingItem()); abrirBuscador('objetos')">
           {{ addingItem() ? 'Cancelar' : '+ Agregar objeto' }}
         </button>
 

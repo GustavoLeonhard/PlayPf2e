@@ -487,6 +487,12 @@ const mapEffect = (d) => {
   };
 };
 
+/*
+ * Los packs cuyo texto se separa. El criterio es el peso: estos cuatro son el
+ * 85% del total, y su descripcion es mas de la mitad de cada uno.
+ */
+const PACKS_CON_DESCRIPCION_APARTE = new Set(['equipment', 'feats', 'spells', 'effects']);
+
 // ------------------------------------------------------------------- main
 
 const JOBS = [
@@ -517,11 +523,38 @@ async function main() {
     const packs = Array.isArray(pack) ? pack : [pack];
     const docs = (await Promise.all(packs.map(readPack))).flat();
     const mapped = docs.map(mapper).sort((a, b) => a.name.localeCompare(b.name));
-    const file = join(OUT, `${name}.json`);
-    await writeFile(file, JSON.stringify(mapped));
-    const kb = Math.round(JSON.stringify(mapped).length / 1024);
+
+    /*
+     * Las descripciones salen a un archivo aparte.
+     *
+     * Son mas de la mitad del peso —3,3 MB de los 5,9 de equipment— y solo se
+     * usan al abrir un ⓘ o al buscar por texto. Abrir una hoja no tiene por que
+     * bajar el texto de las 4563 piezas de equipo.
+     *
+     * Solo en los packs grandes: partir classes.json (50 KB) seria una peticion
+     * mas para no ahorrar nada.
+     */
+    const grande = PACKS_CON_DESCRIPCION_APARTE.has(name);
+    const descripciones = {};
+    const cuerpo = mapped.map((item) => {
+      if (!grande || !item.description) return item;
+      descripciones[item.id] = item.description;
+      return { ...item, description: '' };
+    });
+
+    await writeFile(join(OUT, `${name}.json`), JSON.stringify(cuerpo));
+    const kb = Math.round(JSON.stringify(cuerpo).length / 1024);
     manifest.packs[name] = { count: mapped.length, kb };
-    console.log(`  ${name.padEnd(18)} ${String(mapped.length).padStart(5)} items  ${String(kb).padStart(6)} KB`);
+
+    let extra = '';
+    if (grande) {
+      const texto = JSON.stringify(descripciones);
+      await writeFile(join(OUT, `${name}-desc.json`), texto);
+      extra = `  (+ ${Math.round(texto.length / 1024)} KB de texto aparte)`;
+      manifest.packs[name].descKb = Math.round(texto.length / 1024);
+    }
+
+    console.log(`  ${name.padEnd(18)} ${String(mapped.length).padStart(5)} items  ${String(kb).padStart(6)} KB${extra}`);
   }
 
   await writeFile(join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2));
