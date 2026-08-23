@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PlayPf2e">
+  <title>PlayPf2e</title>
+  <!--
+    Un d20 de frente: el hexagono es la silueta, el triangulo de arriba es la
+    cara que mira al jugador y los radios a los vertices laterales son las
+    aristas que se ven de costado. Va en SVG y no en PNG para que sirva igual
+    de favicon de 16px que de icono de escritorio.
+  -->
+  <defs>
+    <linearGradient id="cuerpo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4c8dff"/>
+      <stop offset="1" stop-color="#1e50c8"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M32 2 60 18 60 46 32 62 4 46 4 18Z" fill="url(#cuerpo)"/>
+
+  <g fill="none" stroke="#0b2a6b" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M32 2 60 18 60 46 32 62 4 46 4 18Z"/>
+    <path d="M32 6 13 35 51 35Z"/>
+    <path d="M13 35 32 58 51 35"/>
+    <path d="M13 35 4 18M51 35 60 18M13 35 4 46M51 35 60 46"/>
+  </g>
+
+  <text
+    x="32" y="30"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="20" font-weight="700"
+    fill="#ffffff"
+  >1</text>
+</svg>

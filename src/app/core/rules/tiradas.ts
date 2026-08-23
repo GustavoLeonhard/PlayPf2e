@@ -22,14 +22,41 @@ export interface Tirada {
 
 const d20 = () => 1 + Math.floor(Math.random() * 20);
 
-/** Una tirada de chequeo: habilidad, salvación, percepción. */
-export function tirarChequeo(label: string, stat: Stat): Tirada {
+/**
+ * Las habilidades cuyas acciones gastan y sufren multiple attack penalty.
+ *
+ * No es una lista de gusto: son las únicas dos habilidades que aparecen en una
+ * acción con rasgo `attack` del dataset. Las seis acciones son Disarm, Force
+ * Open, Grapple, Shove y Trip —todas con Athletics— y Escape, que se puede
+ * tirar con Acrobatics. Por eso solo estas dos se pueden repetir en un turno.
+ */
+export const HABILIDADES_CON_MAP = new Set(['athletics', 'acrobatics']);
+
+/**
+ * El MAP de una maniobra de habilidad: −5 a la segunda y −10 a la tercera.
+ *
+ * Nunca se reduce a la mitad como en las armas: `agile` es un rasgo de arma y
+ * una maniobra no empuña ninguna.
+ */
+export function mapDeManiobra(ataque: number): number {
+  return ataque <= 1 ? 0 : ataque === 2 ? -5 : -10;
+}
+
+/**
+ * Una tirada de chequeo: habilidad, salvación, percepción.
+ *
+ * `ataque` solo importa en las maniobras de Athletics y Acrobatics; para todo
+ * lo demás se queda en 1 y el MAP es cero.
+ */
+export function tirarChequeo(label: string, stat: Stat, ataque = 1): Tirada {
+  const map = mapDeManiobra(ataque);
   const die = d20();
+  const modificador = stat.total + map;
   return {
-    label,
+    label: ataque > 1 ? `${label} (${ataque}ª maniobra, MAP ${map})` : label,
     die,
-    modifier: stat.total,
-    total: die + stat.total,
+    modifier: modificador,
+    total: die + modificador,
     crit: die === 20 ? 'success' : die === 1 ? 'failure' : null,
   };
 }

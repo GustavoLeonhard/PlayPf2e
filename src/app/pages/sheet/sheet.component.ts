@@ -29,7 +29,13 @@ import type { EleccionDeRasgo, OpcionDeEleccion } from '../../core/rules/eleccio
 import { efectoAMano, seCalcula } from '../../core/rules/efectos-a-mano';
 import { RAGE_SLUG, rageSheet } from '../../core/rules/rabia';
 import { signed, type Stat } from '../../core/rules/modifiers';
-import { mapPenalty, tirarAtaque, tirarChequeo } from '../../core/rules/tiradas';
+import {
+  HABILIDADES_CON_MAP,
+  mapDeManiobra,
+  mapPenalty,
+  tirarAtaque,
+  tirarChequeo,
+} from '../../core/rules/tiradas';
 import { CharacterService } from '../../core/services/character.service';
 import { PartyChatService } from '../../core/services/party-chat.service';
 import { PartyService } from '../../core/services/party.service';
@@ -1027,8 +1033,40 @@ export class SheetComponent implements OnInit {
 
   // ------------------------------------------------------------- tiradas
 
-  roll(label: string, stat: Stat) {
-    this.lastRoll.set(tirarChequeo(label, stat));
+  roll(label: string, stat: Stat, ataque = 1) {
+    this.lastRoll.set(tirarChequeo(label, stat, ataque));
+  }
+
+  /**
+   * Si la habilidad tiene maniobras que gastan ataque.
+   *
+   * Se pregunta por el slug y no por una lista en la plantilla para que la
+   * regla viva en un solo lado, al lado del MAP de las armas.
+   */
+  tieneManiobras = (slug: string) => HABILIDADES_CON_MAP.has(slug);
+
+  // La plantilla la usa para pintar el modificador ya con el MAP puesto.
+  mapDeManiobra = mapDeManiobra;
+
+  /**
+   * En que ataque del turno esta cada habilidad con maniobras.
+   *
+   * No se guarda con el personaje a proposito: dura lo que dura el turno, como
+   * el segundo y el tercer ataque de un arma. Recargar la hoja vuelve a #1.
+   */
+  private readonly maniobras = signal<Record<string, number>>({});
+
+  maniobraDe = (slug: string) => this.maniobras()[slug] ?? 1;
+
+  setManiobra(slug: string, valor: string) {
+    this.maniobras.update((m) => ({ ...m, [slug]: Number(valor) }));
+  }
+
+  /** El numero de la derecha ya trae el MAP: el tooltip explica de donde sale. */
+  tituloDelModificador(slug: string) {
+    const n = this.maniobraDe(slug);
+    if (n === 1) return 'Ver de donde sale';
+    return `${n}ª maniobra del turno: MAP ${mapDeManiobra(n)}`;
   }
 
   /**
@@ -1423,7 +1461,19 @@ export class SheetComponent implements OnInit {
       index.featById.get(id)?.description;
 
     for (const f of sheet.features) {
-      if (f.id) guardar(`rasgo:${f.id}`, f.name, descripcionDe(f.id));
+      if (!f.id) continue;
+      /*
+       * Los datos tabulados van tambien cuando el rasgo resulta ser una dote
+       * otorgada —Munitions Crafter otorga Alchemical Crafting, Specialty
+       * Crafting y Experienced Tracker—, y no solo por completitud.
+       *
+       * El texto de las dotes se baja aparte y recien cuando alguien abre una
+       * ficha. Sin datos, la entrada no se guardaba hasta que el texto llegara,
+       * el ⓘ no se pintaba, y sin ⓘ no habia quien disparara la descarga: huevo
+       * y gallina, y esos tres rasgos se quedaban mudos para siempre.
+       */
+      const dote = index.featById.get(f.id);
+      guardar(`rasgo:${f.id}`, f.name, descripcionDe(f.id), dote ? datosDeDote(dote) : []);
     }
     for (const f of sheet.feats) {
       const dote = index.featById.get(f.id);
@@ -1478,8 +1528,20 @@ export class SheetComponent implements OnInit {
       });
   }
 
+  /**
+   * Que ficha esta abierta. Se guarda la clave, no la ficha.
+   *
+   * Guardando el objeto, la ficha quedaba congelada en el momento del clic: si
+   * la descripcion todavia se estaba bajando, se veian los datos tecnicos y el
+   * texto no aparecia nunca, ni cuando el archivo llegaba.
+   */
+  private readonly fichaAbierta = signal<string | null>(null);
+
   /** La ficha abierta, o null. Se muestra como el resultado de una tirada. */
-  readonly ficha = signal<Ficha | null>(null);
+  readonly ficha = computed(() => {
+    const clave = this.fichaAbierta();
+    return clave ? (this.fichas().get(clave) ?? null) : null;
+  });
 
   /** Qué archivo de texto hace falta según qué se abrió. */
   private static readonly PACK_DE_FICHA: Record<string, string> = {
@@ -1498,8 +1560,11 @@ export class SheetComponent implements OnInit {
      */
     const pack = SheetComponent.PACK_DE_FICHA[clave.split(':')[0]];
     if (pack) this.content.asegurarDescripciones(pack);
-    const encontrada = this.fichas().get(clave);
-    if (encontrada) this.ficha.set(encontrada);
+    this.fichaAbierta.set(clave);
+  }
+
+  cerrarFicha() {
+    this.fichaAbierta.set(null);
   }
 
   // ----------------------------------------------------------- garbo

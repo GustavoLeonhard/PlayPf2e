@@ -3,7 +3,14 @@ import { Component, computed, effect, inject, input, signal } from '@angular/cor
 import type { CharacterRecord } from '../../core/models/character.model';
 import { computeCharacter, type ContentIndex, type StrikeSheet } from '../../core/rules/character.engine';
 import { signed } from '../../core/rules/modifiers';
-import { mapPenalty, tirarAtaque, tirarChequeo, type Tirada } from '../../core/rules/tiradas';
+import {
+  HABILIDADES_CON_MAP,
+  mapDeManiobra,
+  mapPenalty,
+  tirarAtaque,
+  tirarChequeo,
+  type Tirada,
+} from '../../core/rules/tiradas';
 import { CharacterService } from '../../core/services/character.service';
 import { ContentService } from '../../core/services/content.service';
 import { PartyChatService } from '../../core/services/party-chat.service';
@@ -86,9 +93,34 @@ import { PartyService } from '../../core/services/party.service';
         <h4 class="muted">Habilidades</h4>
         <div class="skills">
           @for (sk of entrenadas(); track sk.slug) {
-            <button class="chip" (click)="tirar(sk.name, sk.stat)">
-              {{ sk.name }} <strong>{{ signo(sk.stat.total) }}</strong>
-            </button>
+            <!--
+              Athletics y Acrobatics se repiten en el turno: son las unicas dos
+              con acciones de rasgo attack. El combo va pegado al chip para que
+              el numero del chip siga siendo el que vas a tirar.
+            -->
+            @if (tieneManiobras(sk.slug)) {
+              <span class="chip con-maniobra">
+                <button class="nombre" (click)="tirar(sk.name, sk.stat, maniobraDe(sk.slug))">
+                  {{ sk.name }}
+                </button>
+                <select
+                  class="maniobra"
+                  title="En que ataque del turno estas: la 2da paga -5 y la 3ra -10"
+                  (change)="setManiobra(sk.slug, $any($event.target).value)"
+                >
+                  @for (n of [1, 2, 3]; track n) {
+                    <option [value]="n" [selected]="n === maniobraDe(sk.slug)">
+                      {{ signo(sk.stat.total + mapDeManiobra(n)) }}
+                    </option>
+                  }
+                </select>
+              </span>
+            } @else {
+              <button class="chip" (click)="tirar(sk.name, sk.stat)">
+                {{ sk.name }} <strong>{{ signo(sk.stat.total) }}</strong>
+              </button>
+            }
+
           }
         </div>
       </div>
@@ -185,6 +217,39 @@ import { PartyService } from '../../core/services/party.service';
       gap: 0.25rem;
     }
 
+    /* El chip con combo sigue siendo un chip: el select vive adentro del marco. */
+    .skills .chip.con-maniobra {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.15rem;
+    }
+
+    .skills .con-maniobra .nombre {
+      background: none;
+      border: none;
+      color: inherit;
+      font: inherit;
+      padding: 0;
+      cursor: pointer;
+    }
+
+    /* El combo hace de numero del chip, con las tres opciones ya calculadas. */
+    .skills .maniobra {
+      appearance: none;
+      background: transparent;
+      border: none;
+      color: inherit;
+      font: inherit;
+      font-weight: 700;
+      padding: 0;
+      cursor: pointer;
+    }
+
+    .skills .maniobra option {
+      background: var(--surface);
+      color: var(--text);
+    }
+
     .skills .chip {
       font-size: 0.78rem;
     }
@@ -261,8 +326,18 @@ export class PjPanelComponent {
     await this.characters.save(record);
   }
 
-  tirar(label: string, stat: Parameters<typeof tirarChequeo>[1]) {
-    this.publicar(tirarChequeo(label, stat));
+  tieneManiobras = (slug: string) => HABILIDADES_CON_MAP.has(slug);
+  mapDeManiobra = mapDeManiobra;
+
+  /** En que ataque del turno esta cada habilidad. Efimero, como en la hoja. */
+  private readonly maniobras = signal<Record<string, number>>({});
+  maniobraDe = (slug: string) => this.maniobras()[slug] ?? 1;
+  setManiobra(slug: string, valor: string) {
+    this.maniobras.update((m) => ({ ...m, [slug]: Number(valor) }));
+  }
+
+  tirar(label: string, stat: Parameters<typeof tirarChequeo>[1], ataque = 1) {
+    this.publicar(tirarChequeo(label, stat, ataque));
   }
 
   atacar(strike: StrikeSheet, ataque: number) {

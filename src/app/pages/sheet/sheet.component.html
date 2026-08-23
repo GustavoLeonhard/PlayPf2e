@@ -757,7 +757,9 @@
             >
               ★
             </button>
-            <button class="skill-name" (click)="roll(sk.name, sk.stat)">{{ sk.name }}</button>
+            <button class="skill-name" (click)="roll(sk.name, sk.stat, maniobraDe(sk.slug))">
+              {{ sk.name }}
+            </button>
             <app-rank-select
               class="rank"
               [rank]="sk.rank"
@@ -765,7 +767,34 @@
               (rankChange)="setProficiency('skills', sk.slug, $event)"
               (restablecer)="clearProficiency('skills', sk.slug)"
             />
-            <button class="skill-mod" (click)="toggleBreakdown('sk-' + sk.slug)">{{ signed(sk.stat.total) }}</button>
+            <!--
+              Athletics y Acrobatics son las unicas habilidades con acciones de
+              rasgo attack —Disarm, Force Open, Grapple, Shove, Trip y Escape—,
+              asi que son las unicas que se repiten en un turno pagando el MAP.
+
+              El combo ES el numero, en la misma celda donde va el modificador
+              de las otras catorce. Un combo aparte al lado del nombre no entra:
+              la columna del nombre es angosta y el select le comia el lugar al
+              rango. Asi la fila mide y alinea igual que todas las demas.
+            -->
+            @if (tieneManiobras(sk.slug)) {
+              <select
+                class="skill-mod maniobra"
+                [class.con-map]="maniobraDe(sk.slug) > 1"
+                title="En que ataque del turno estas: la 2da maniobra paga -5 y la 3ra -10"
+                (change)="setManiobra(sk.slug, $any($event.target).value)"
+              >
+                @for (n of [1, 2, 3]; track n) {
+                  <option [value]="n" [selected]="n === maniobraDe(sk.slug)">
+                    {{ signed(sk.stat.total + mapDeManiobra(n)) }}
+                  </option>
+                }
+              </select>
+            } @else {
+              <button class="skill-mod" title="Ver de donde sale" (click)="toggleBreakdown('sk-' + sk.slug)">
+                {{ signed(sk.stat.total) }}
+              </button>
+            }
           </div>
           @if (openBreakdown() === 'sk-' + sk.slug) {
             <div class="breakdown inline">
@@ -845,11 +874,24 @@
           >
             @for (f of grupo.items; track f.name + f.level) {
               <div class="feat-row">
-                <span class="feat-nombre" [class.accent]="f.esDote">{{ f.name }}</span>
-                @if (fichas().get((f.esDote ? 'dote:' : 'rasgo:') + f.id); as ficha) {
-                  <button class="info" title="Ver la descripción" (click)="verFicha((f.esDote ? 'dote:' : 'rasgo:') + f.id)">
-                    ⓘ
+                <!--
+                  El nombre abre la descripción. El ⓘ se queda igual: es lo que
+                  se ve a simple vista, y sin él nadie descubriría que el
+                  título también se puede clickear.
+                -->
+                @let claveDote = (f.esDote ? 'dote:' : 'rasgo:') + f.id;
+                @if (fichas().get(claveDote)) {
+                  <button
+                    class="feat-nombre titulo-ficha"
+                    [class.accent]="f.esDote"
+                    title="Ver la descripción"
+                    (click)="verFicha(claveDote)"
+                  >
+                    {{ f.name }}
                   </button>
+                  <button class="info" title="Ver la descripción" (click)="verFicha(claveDote)">ⓘ</button>
+                } @else {
+                  <span class="feat-nombre" [class.accent]="f.esDote">{{ f.name }}</span>
                 }
                 <span class="muted feat-nivel">nv {{ f.level }}</span>
                 @if (f.esDote) {
@@ -1450,7 +1492,13 @@
               <div class="rejilla angosta">
                 @for (spell of spellbook(); track spell.id) {
                   <div class="spell-row">
-                    <span class="spell-name">{{ spell.name }}</span>
+                    <button
+                      class="spell-name titulo-ficha"
+                      title="Ver la descripción"
+                      (click)="verFicha('conjuro:' + spell.id)"
+                    >
+                      {{ spell.name }}
+                    </button>
                     <button class="info" title="Ver la descripción" (click)="verFicha('conjuro:' + spell.id)">ⓘ</button>
                     <span class="muted spell-meta">rango {{ spell.level }}</span>
                     <button class="rank-btn" (click)="olvidarConjuro(spell.level, spell.id)">quitar</button>
@@ -1621,7 +1669,13 @@
         @for (fila of inventory(); track fila.index) {
           <div class="inv-row" [class.equipped]="fila.item.equipped">
             <span class="inv-name">
-              {{ fila.name }}
+              @if (fichas().get('item:' + fila.index)) {
+                <button class="titulo-ficha" title="Ver la descripción" (click)="verFicha('item:' + fila.index)">
+                  {{ fila.name }}
+                </button>
+              } @else {
+                {{ fila.name }}
+              }
               @if (fila.inventado) {
                 <span class="tag custom-tag">inventado</span>
               }
@@ -2171,7 +2225,7 @@
   -->
   @if (ficha(); as f) {
     <div class="roll-toast ficha-toast">
-      <button class="close" (click)="ficha.set(null)">×</button>
+      <button class="close" (click)="cerrarFicha()">×</button>
       <span class="r-label">{{ f.titulo }}</span>
       @if (f.datos.length) {
         <dl class="ficha-datos">

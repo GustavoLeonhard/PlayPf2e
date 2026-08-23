@@ -1774,3 +1774,63 @@ button.efecto-nombre:hover {
   padding: 0 0.5rem;
   font-size: 0.78rem;
 }
+
+/*
+ * Un título que abre su descripción.
+ *
+ * Se pinta como texto y no como botón a propósito: el subrayado punteado al
+ * pasar por encima alcanza para avisar que hace algo, y una fila de botones
+ * grises en el inventario taparía lo que importa, que es el nombre del objeto.
+ */
+.titulo-ficha {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.titulo-ficha:hover,
+.titulo-ficha:focus-visible {
+  color: var(--accent-strong);
+  text-decoration: underline dotted;
+}
+
+/*
+ * El combo de maniobra es el propio numero del modificador: ocupa la misma
+ * celda que en las otras catorce habilidades, con las tres opciones ya
+ * calculadas (+3 / -2 / -7) en vez de pedirle al jugador que reste el MAP.
+ */
+select.skill-mod {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--accent);
+  font: inherit;
+  /* Igual que el boton al que reemplaza, para que la columna no se mueva. */
+  min-width: 2.4rem;
+  text-align: right;
+  /* Menos 1px por lado: el borde transparente no debe agrandar la fila. */
+  padding: calc(0.15rem - 1px) 0;
+  cursor: pointer;
+}
+
+select.skill-mod:hover,
+select.skill-mod:focus {
+  border-color: var(--border);
+  color: var(--accent-strong);
+}
+
+/* Con MAP puesto el numero deja de ser el de siempre, y tiene que notarse. */
+select.skill-mod.con-map {
+  color: var(--muted);
+}
+
+/* La lista la pinta el sistema: sin esto hereda el fondo transparente. */
+select.skill-mod option {
+  background: var(--surface);
+  color: var(--text);
+}

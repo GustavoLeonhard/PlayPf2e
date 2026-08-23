@@ -11,7 +11,7 @@ import { ProfileService } from './core/services/profile.service';
   template: `
     <header class="topbar">
       <a class="brand" routerLink="/characters">
-        <span class="d20">⬢</span>
+        <img class="d20" src="icono.svg" alt="" width="24" height="24" />
         <span>PlayPf2e <small class="muted">legacy</small></span>
       </a>
 
@@ -69,9 +69,11 @@ import { ProfileService } from './core/services/profile.service';
       text-decoration: none;
     }
 
+    /* El mismo archivo que el favicon: un solo dibujo para todo el proyecto. */
     .d20 {
-      color: var(--accent);
-      font-size: 1.3rem;
+      display: block;
+      width: 1.5rem;
+      height: 1.5rem;
     }
 
     .nav {
