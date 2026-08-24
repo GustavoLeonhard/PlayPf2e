@@ -95,7 +95,20 @@ monolítico y no se puede repartir en una ventana por jugador.
       rastro en los logs de la función, porque nunca la llamaron—; y crear la
       sala si no existe no alcanza, hay que **forzarla a privada** si ya existía,
       o una mesa vieja se queda abierta para siempre sin que nadie se entere.
-- [ ] **Entrega 3 — la pantalla externa.** Sacar las caras a un segundo monitor.
+- [x] **Entrega 3 — la pantalla externa.** Las caras salen por **Document
+      Picture-in-Picture** (`core/services/pip.service.ts`), no por
+      `window.open`. Con `window.open` la llamada no se cortaba —vive en la
+      pestaña principal— pero la ventana nueva es otro documento que no está en
+      la llamada, así que se veía sin video. Document PiP **muda los nodos** sin
+      cambiar de documento, así que el `<video>` se lleva su stream puesto y
+      Angular le sigue escribiendo encima.
+
+      Tres cosas que hay que respetar si se toca: la ventana nace **sin
+      estilos** y hay que clonarle los del documento principal; el nodo mudado
+      **sigue siendo de Angular**, así que si se destruye la vista se lleva el
+      video puesto —por eso la ventana del lienzo queda abierta con un cartel en
+      vez de cerrarse—; y la API **exige gesto del usuario**, así que no se
+      puede abrir desde un efecto ni desde código.
 
 **Ciclo de vida de la sala, para no volver a deducirlo.** La sala no tiene
 vencimiento y no se cierra cuando se van todos: lo que termina es la sesión, y

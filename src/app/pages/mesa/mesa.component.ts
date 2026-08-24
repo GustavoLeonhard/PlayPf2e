@@ -19,6 +19,7 @@ import { PartyChatService } from '../../core/services/party-chat.service';
 import { PartyService, mensajeDeError } from '../../core/services/party.service';
 import { AuthService } from '../../core/services/auth.service';
 import { VozService } from '../../core/services/voz.service';
+import { PipService } from '../../core/services/pip.service';
 import { TrackDirective } from '../../shared/track.directive';
 
 /**
@@ -181,7 +182,17 @@ import { TrackDirective } from '../../shared/track.directive';
               [titulo]="j.displayName"
               (sacar)="sacarAfuera(claveJugador(j.user_id))"
             >
-              <app-jugador-panel [jugador]="j" [cara]="voz.cara(j.user_id)" />
+              @if (pip.abierta() === claveJugador(j.user_id)) {
+                <p class="muted small">Está en la ventana flotante.</p>
+              }
+              <!--
+                Este div es lo que se muda a la ventana flotante. Tiene que
+                seguir existiendo en la vista de Angular aunque este afuera: si
+                se destruyera, se lleva el nodo puesto y con el el video.
+              -->
+              <div class="mudable" [attr.data-pip]="claveJugador(j.user_id)">
+                <app-jugador-panel [jugador]="j" [cara]="voz.cara(j.user_id)" />
+              </div>
             </app-ventana>
           }
         }
@@ -588,6 +599,7 @@ export class MesaComponent implements OnDestroy {
   readonly clave = claveDeNota;
   readonly claveJugador = claveDeJugador;
   readonly voz = inject(VozService);
+  readonly pip = inject(PipService);
 
   /**
    * Entrar al canal necesita el token de invitacion, que es de donde sale el
@@ -660,8 +672,30 @@ export class MesaComponent implements OnDestroy {
    * no hay componente aparte ni mensajería entre ventanas. Lo que muestre se
    * sincroniza por el servidor, igual que el chat.
    */
-  sacarAfuera(tipo: TipoDeVentana) {
-    // La nota y el jugador llevan su id como un segmento más: `ventana/nota/<id>`.
+  async sacarAfuera(tipo: TipoDeVentana) {
+    /*
+     * Las caras NO pueden salir por `window.open`.
+     *
+     * Esa ruta abre otro documento, que no está en la llamada: la llamada no se
+     * corta —vive en esta pestaña— pero la ventana nueva no tiene ningún track
+     * que mostrar y se ve vacía. Document PiP muda los nodos sin cambiar de
+     * documento, así que el <video> se lleva su stream puesto.
+     */
+    if (tipo.startsWith('jugador:')) {
+      const nodo = document.querySelector<HTMLElement>(`[data-pip="${tipo}"]`);
+      if (!nodo) return;
+      const ok = await this.pip.sacar(tipo, nodo, { width: 360, height: 320 });
+      if (!ok) {
+        this.error.set(
+          this.pip.soportado
+            ? 'No se pudo abrir la ventana flotante. Probá de nuevo.'
+            : 'Tu navegador no puede sacar el video afuera. Funciona en Chrome, Edge y Firefox recientes.',
+        );
+      }
+      return;
+    }
+
+    // La nota lleva su id como un segmento más: `ventana/nota/<id>`.
     const ruta = tipo.includes(':') ? tipo.replace(':', '/') : tipo;
     window.open(`/parties/${this.id()}/ventana/${ruta}`, `mesa-${tipo}`, 'width=760,height=680');
     this.ventanas.cerrar(tipo);
@@ -699,6 +733,16 @@ export class MesaComponent implements OnDestroy {
     });
 
     /*
+     * Si cerrás en el lienzo la ventana que está afuera, Angular destruye el
+     * nodo y la ventana flotante se queda mostrando un hueco. Se la devuelve
+     * antes de que eso pase.
+     */
+    effect(() => {
+      const afuera = this.pip.abierta();
+      if (afuera && !this.ventanas.abierta(afuera as TipoDeVentana)) void this.pip.devolver();
+    });
+
+    /*
      * Bajar solo al hilo cuando llega algo. Sin esto, en plena partida los
      * mensajes nuevos quedan abajo del scroll y hay que ir a buscarlos.
      */
@@ -719,6 +763,9 @@ export class MesaComponent implements OnDestroy {
     // Y si no se sale del canal, la camara queda prendida y se siguen contando
     // minutos con la mesa cerrada.
     void this.voz.salir();
+    // Si queda algo afuera, el nodo se destruye con la vista y la ventana
+    // flotante se queda mostrando un hueco.
+    void this.pip.devolver();
   }
 
   async enviar(evento: Event) {
