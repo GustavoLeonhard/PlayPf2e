@@ -60,7 +60,17 @@ import { TrackDirective } from '../../shared/track.directive';
                 } @else {
                   <span class="avatar chico vacio">{{ inicialesDe(m.authorName) }}</span>
                 }
-                <span class="quien">{{ m.authorName }}</span>
+                <!--
+                  En una tirada manda el PERSONAJE y el jugador va entre
+                  parentesis: en la mesa se habla de Kaz, no de Gera. En un
+                  mensaje de texto es al reves, porque ahi hablas vos.
+                  Las tiradas viejas no traen PJ: se muestran como antes.
+                -->
+                @if (m.roll?.pj; as pj) {
+                  <span class="quien">{{ pj }} <span class="muted jugador">({{ m.authorName }})</span></span>
+                } @else {
+                  <span class="quien">{{ m.authorName }}</span>
+                }
                 @if (m.visibility === 'master') {
                   <span class="tag">solo el máster</span>
                 } @else if (m.visibility === 'yo') {
@@ -489,6 +499,12 @@ import { TrackDirective } from '../../shared/track.directive';
     .boton.on {
       border-color: var(--accent);
       color: var(--accent-strong);
+    }
+
+    /* El jugador va mas chico: el que importa de un vistazo es el personaje. */
+    .jugador {
+      font-weight: 400;
+      font-size: 0.85em;
     }
 
     .icono {

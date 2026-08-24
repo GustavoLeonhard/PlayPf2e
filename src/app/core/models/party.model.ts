@@ -69,6 +69,15 @@ export interface PartyMessage {
  * dijo esa noche.
  */
 export interface RollPayload {
+  /**
+   * Con qué personaje se tiró.
+   *
+   * Va COPIADO en la tirada y no se busca al pintar. No es solo por coherencia
+   * con el resto del payload: la política de `characters` es de lectura propia,
+   * así que el nombre del PJ de otro jugador es ilegible desde tu sesión. Si el
+   * chat lo resolviera al mostrar, verías el tuyo y de los demás nada.
+   */
+  pj?: string;
   label: string;
   die: number;
   modifier: number;

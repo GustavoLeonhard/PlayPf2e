@@ -48,6 +48,18 @@ export class PartyChatService {
   private abriendo: string | null = null;
 
   /**
+   * Con qué personaje estás sentado en cada mesa.
+   *
+   * Se resuelve solo la primera vez que publicás en esa partida, no al abrir el
+   * hilo: **la hoja publica sin abrir el chat**. Si dependiera de `abrir()`,
+   * tirar desde la hoja —que es de donde más se tira— saldría sin personaje.
+   *
+   * Se cachea por partida, incluido el `null`, para no repetir la consulta en
+   * cada tirada de la noche.
+   */
+  private pjPorPartida = new Map<string, string | null>();
+
+  /**
    * Abre el hilo de una partida: trae lo último y se queda escuchando.
    *
    * Se traen los últimos 200 y no todo: una mesa de un año tiene miles de
@@ -102,6 +114,10 @@ export class PartyChatService {
       )
       .subscribe();
 
+    // Adelanta la consulta para que la primera tirada no la espere. Si no llega
+    // a tiempo, `publicarTirada` la resuelve igual: acá solo se gana latencia.
+    void this.pjDe(partyId);
+
     this.abriendo = null;
   }
 
@@ -138,10 +154,44 @@ export class PartyChatService {
     const autor = this.auth.userId();
     if (!this.client || !autor) return;
 
+    // El PJ lo pone el servicio, no quien tira: así las tres formas de tirar
+    // salen firmadas igual, incluido el tirador de dados suelto.
+    const pj = await this.pjDe(partyId);
+    const conPj: RollPayload = { ...roll, ...(pj ? { pj } : {}) };
+
     const { error } = await this.client
       .from('party_messages')
-      .insert({ party_id: partyId, author_id: autor, kind: 'tirada', body: roll.label, roll, visibility });
+      .insert({ party_id: partyId, author_id: autor, kind: 'tirada', body: roll.label, roll: conPj, visibility });
     if (error) throw error;
+  }
+
+  /**
+   * Con qué personaje se sentó el usuario en esta mesa.
+   *
+   * El embed funciona porque es TU personaje: la política de `characters` deja
+   * leer los propios. Para los demás devolvería null, y por eso el nombre viaja
+   * dentro de la tirada en vez de resolverse al pintar.
+   */
+  private async pjDe(partyId: string): Promise<string | null> {
+    const cacheado = this.pjPorPartida.get(partyId);
+    if (cacheado !== undefined) return cacheado;
+
+    const yo = this.auth.userId();
+    if (!this.client || !yo) return null;
+
+    const { data } = await this.client
+      .from('party_members')
+      .select('characters:character_id (name)')
+      .eq('party_id', partyId)
+      .eq('user_id', yo)
+      .maybeSingle();
+
+    // PostgREST tipa el embed como arreglo aunque en runtime sea un objeto.
+    const pj = (data as { characters: { name: string } | { name: string }[] | null } | null)?.characters;
+    const fila = Array.isArray(pj) ? pj[0] : pj;
+    const nombre = fila?.name ?? null;
+    this.pjPorPartida.set(partyId, nombre);
+    return nombre;
   }
 
   async borrar(id: string): Promise<void> {
