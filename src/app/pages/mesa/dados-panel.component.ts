@@ -15,8 +15,21 @@ import { mensajeDeError } from '../../core/services/party.service';
   template: `
     <div class="dados">
       <div class="fila-dados">
+        <!--
+          Cuantos dados. Va ANTES de los botones y no adentro de cada uno para
+          que se lea como la formula que arma: "5" "d10" es 5d10.
+        -->
+        <input
+          class="cuantos"
+          type="number"
+          min="1"
+          max="99"
+          title="Cuántos dados"
+          [value]="cuantos()"
+          (input)="setCuantos($any($event.target).value)"
+        />
         @for (c of caras; track c) {
-          <button class="chip" (click)="tirar('1d' + c)">d{{ c }}</button>
+          <button class="chip" [title]="cuantos() + 'd' + c" (click)="tirar(cuantos() + 'd' + c)">d{{ c }}</button>
         }
       </div>
 
@@ -46,16 +59,34 @@ import { mensajeDeError } from '../../core/services/party.service';
     </div>
   `,
   styles: `
+    /*
+      La ventana de dados es la mas chica de la mesa y comparte pantalla con el
+      chat y el PJ: todo va un escalon abajo del tamano del resto de la app.
+    */
     .dados {
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.35rem;
+      font-size: 0.78rem;
     }
 
     .fila-dados {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.3rem;
+      align-items: center;
+      gap: 0.2rem;
+    }
+
+    .fila-dados .chip {
+      padding: 0.1rem 0.35rem;
+      font-size: 0.78rem;
+    }
+
+    .cuantos {
+      width: 2.4rem;
+      padding: 0.1rem 0.2rem;
+      font: inherit;
+      text-align: center;
     }
 
     .formula {
@@ -81,8 +112,29 @@ import { mensajeDeError } from '../../core/services/party.service';
       gap: 0.4rem;
     }
 
+    .ultima {
+      flex-wrap: wrap;
+    }
+
+    /* Grande, pero no tanto: antes el total solo ocupaba mas alto que la
+       botonera entera. */
     .ultima strong {
-      font-size: 1.5rem;
+      font-size: 1.15rem;
+    }
+
+    .ultima small {
+      font-size: 0.72rem;
+    }
+
+    .formula input,
+    .quien select {
+      padding: 0.1rem 0.25rem;
+      font: inherit;
+    }
+
+    .formula .btn {
+      padding: 0.1rem 0.5rem;
+      font-size: 0.78rem;
     }
 
     .error {
@@ -97,6 +149,15 @@ export class DadosPanelComponent {
   private chat = inject(PartyChatService);
 
   readonly caras = [4, 6, 8, 10, 12, 20, 100];
+
+  /** Cuántos dados de la cara que aprietes. No se guarda: es del momento. */
+  readonly cuantos = signal(1);
+
+  setCuantos(valor: string) {
+    const n = Math.round(Number(valor));
+    // Cero dados no es una tirada, y noventa y nueve ya es un accidente.
+    this.cuantos.set(Number.isNaN(n) ? 1 : Math.min(99, Math.max(1, n)));
+  }
   readonly visibilidad = signal<'todos' | 'master' | 'yo'>('todos');
   readonly ultima = signal<{ total: number; detail: string } | null>(null);
   readonly error = signal<string | null>(null);

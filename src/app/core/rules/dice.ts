@@ -22,7 +22,12 @@ export function rollFormula(formula: string): DiceRoll {
     if (dice) {
       const rolls = Array.from({ length: Number(dice[1]) }, () => d(Number(dice[2])));
       total += rolls.reduce((a, b) => a + b, 0);
-      parts.push(`${term} (${rolls.join(', ')})`);
+      /*
+       * Con signo de más y no con comas: "(1 + 5 + 6)" se lee como la cuenta
+       * que es, y con una coma parecía una lista de la que después había que
+       * sacar el total de cabeza.
+       */
+      parts.push(`${term} (${rolls.join(' + ')})`);
       continue;
     }
     const flat = term.match(/^\d+$/);
