@@ -41,8 +41,18 @@ export interface EleccionAbierta {
 }
 
 export interface EleccionDeRasgo {
-  /** Id del rasgo o dote que abre la elección. Es la clave con la que se guarda. */
+  /** Id del rasgo o dote que abre la elección. */
   itemId: string;
+  /**
+   * La clave con la que se guarda lo elegido.
+   *
+   * Casi siempre es el `itemId` pelado. Cuando un mismo ítem se otorga más de
+   * una vez —Anvil Dwarf da Specialty Crafting dos veces, para dos
+   * especialidades— la segunda lleva `#2`, o las dos elecciones se pisarían.
+   * La primera se queda sin sufijo a propósito: así los personajes que ya
+   * existían no pierden lo que habían elegido.
+   */
+  clave: string;
   itemName: string;
   tipo: TipoDeEleccion;
   opciones: OpcionDeEleccion[];
@@ -135,6 +145,8 @@ export function eleccionesDe(
     elegidas: Record<string, string>;
     objetos: BuscadorDeObjetos;
     dotesTomadas?: ItemConReglas[];
+    /** Cuál de las veces que se otorga este ítem es esta. 1 si se otorga una sola. */
+    ocurrencia?: number;
   },
 ): EleccionDeRasgo[] {
   const salida: EleccionDeRasgo[] = [];
@@ -173,12 +185,16 @@ export function eleccionesDe(
       ? lista.find((o) => (porDote.rules ?? []).some((r) => r.key === 'GrantItem' && r.id === o.itemId))
       : undefined;
 
+    const vez = opciones.ocurrencia ?? 1;
+    const clave = vez > 1 ? `${item.id}#${vez}` : item.id;
+
     salida.push({
       itemId: item.id,
-      itemName: item.name,
+      clave,
+      itemName: vez > 1 ? `${item.name} (${vez}ª)` : item.name,
       tipo,
       opciones: lista,
-      elegido: impuesta?.valor ?? opciones.elegidas[item.id] ?? null,
+      elegido: impuesta?.valor ?? opciones.elegidas[clave] ?? null,
       decididoPor: impuesta ? porDote!.name : null,
     });
   }

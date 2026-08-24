@@ -5,6 +5,9 @@ import type { CharacterRecord, Choice } from '../../core/models/character.model'
 import type { Ability, Background, ClassFeature, Feat, Pf2Class, Spell } from '../../core/models/content.model';
 import { ABILITIES, ABILITY_NAMES } from '../../core/models/content.model';
 import { archetypeFeatAvailable, isArchetypeFeat, ownedDedications } from '../../core/rules/archetypes';
+import { computeCharacter } from '../../core/rules/character.engine';
+import type { ContentIndex } from '../../core/rules/character.engine';
+import { evaluatePrerequisite } from '../../core/rules/prerequisites';
 import {
   featureChoicesAt,
   featuresGainedAt,
@@ -86,6 +89,54 @@ export class LevelUpComponent implements OnInit {
     void this.content.classFeatures().then((f) => this.classFeatures.set(f));
     void this.content.backgrounds().then((b) => this.backgrounds.set(b));
     void this.content.spells().then((s) => this.spells.set(s));
+
+    /*
+     * El mismo pedido que hace el asistente, y por el mismo motivo: esta
+     * pantalla usa el `option-picker`, cuyo panel derecho ES la descripción de
+     * lo que estás por elegir. Sin esto el texto viaja aparte y nunca se pide,
+     * así que el panel salía vacío y elegías una dote a ciegas, por el nombre.
+     *
+     * Los prerrequisitos no dependen de esto: viajan en `feats.json` y siempre
+     * se vieron.
+     */
+    this.content.asegurarDescripciones('feats', 'spells');
+
+    /*
+     * El índice completo, solo para poder calcular la hoja y de ahí sacar el
+     * contexto con el que se evalúan los prerrequisitos. Es la misma cuenta que
+     * hace la hoja para avisarte de las dotes que YA tenés; acá se aplica a las
+     * candidatas.
+     */
+    void this.content.index().then((i) => this.index.set(i));
+  }
+
+  private readonly index = signal<ContentIndex | null>(null);
+
+  /**
+   * Con qué medir los requisitos de cada dote de la lista.
+   *
+   * Se calcula sobre el nivel ACTUAL, no el que estás por alcanzar: los
+   * requisitos se cumplen al momento de elegir. Una dote que pide nivel 5 no la
+   * podés tomar con el slot que te dio llegar a 5... salvo que el manual diga
+   * lo contrario, y por eso nada de esto bloquea: solo informa.
+   */
+  private readonly contextoDeRequisitos = computed(() => {
+    const record = this.record();
+    const index = this.index();
+    if (!record || !index) return null;
+    return computeCharacter(record.build, record.state, index).prerequisitos;
+  });
+
+  /** Si el personaje cumple lo que pide esta dote. */
+  private requisitosDe(feat: Feat): 'met' | 'unmet' | 'unknown' | undefined {
+    const ctx = this.contextoDeRequisitos();
+    if (!ctx) return undefined;
+    if (!feat.prerequisites?.length) return 'met';
+
+    const estados = feat.prerequisites.map((p) => evaluatePrerequisite(p, ctx));
+    // Hay que cumplirlos TODOS: basta uno incumplido para no llegar.
+    if (estados.includes('unmet')) return 'unmet';
+    return estados.includes('unknown') ? 'unknown' : 'met';
   }
 
   // ------------------------------------------------------------- conjuros
@@ -198,7 +249,9 @@ export class LevelUpComponent implements OnInit {
        */
       .map((f) =>
         f.maxTakable > 1 || !alreadyTaken.has(f.id) ? f : { ...f, deshabilitada: true, motivo: 'ya la tenés' },
-      );
+      )
+      // Los requisitos van al final: se calculan sobre la dote, no sobre el filtro.
+      .map((f) => ({ ...f, requisitos: this.requisitosDe(f as Feat) }));
   }
 
   pick(slot: PendingSlot, value: string | null) {

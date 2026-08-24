@@ -67,7 +67,7 @@ const content: ContentIndex = {
   featureById: new Map([...features, ...ancestryFeatures].map((f) => [f.id, f])),
   equipmentById: new Map(equipment.map((e) => [e.id, e])),
   actionById: new Map(actions.map((a) => [a.id, a])),
-  featNames: new Set(feats.map((f) => f.name.toLowerCase())),
+  nombresConocidos: new Set(feats.map((f) => f.name.toLowerCase())),
   deityById: new Map(deities.map((d) => [d.id, d as never])),
   effectById: new Map(effects.map((e) => [e.id, e])),
 };
@@ -263,7 +263,7 @@ describe('prerrequisitos', () => {
     skillRanks: { athletics: 1 as const, crafting: 1 as const, stealth: 0 as const, 'lore:hunting': 1 as const },
     perception: 2 as const,
     ownedNames: new Set(['power attack']),
-    knownFeatNames: new Set(['power attack', 'basic deduction']),
+    knownNames: new Set(['power attack', 'basic deduction']),
     level: 5,
   };
 
@@ -2129,14 +2129,50 @@ describe('lo que otorgan la herencia y el trasfondo', () => {
     expect(sheet.features.map((f) => f.name)).toContain('Specialty Crafting');
   });
 
-  it('el pack la trae DUPLICADA y se otorga una sola vez', () => {
+  /*
+   * Este test decía lo contrario, y estaba mal.
+   *
+   * Al ver el grant repetido se supuso que era ruido del pack y se dedupllicaba.
+   * Pero el texto de la herencia lo dice con todas las letras: "you gain the
+   * Specialty Crafting skill feat, but you can pick two different specialties
+   * instead of one". La repetición ES la regla.
+   */
+  it('el pack la trae DUPLICADA porque son DOS especialidades', () => {
     const anvil = heritages.find((h) => h.name === 'Anvil Dwarf')!;
     const grants = anvil.rules.filter((r) => r.key === 'GrantItem');
     expect(grants).toHaveLength(2);
     expect(grants[0].id).toBe(grants[1].id);
 
     const sheet = computeCharacter(enanoDeputy(), emptyState(), content);
-    expect(sheet.features.filter((f) => f.name === 'Specialty Crafting')).toHaveLength(1);
+    expect(sheet.features.filter((f) => f.name === 'Specialty Crafting')).toHaveLength(2);
+  });
+
+  it('cada una de las dos especialidades se elige y se guarda por separado', () => {
+    const sheet = computeCharacter(enanoDeputy(), emptyState(), content);
+    const dos = sheet.eleccionesDeRasgos.filter((e) => e.itemId === 'QLeMH5mQgh28sa5o');
+    expect(dos).toHaveLength(2);
+
+    // La primera sin sufijo: los personajes que ya existían no pierden lo suyo.
+    expect(dos.map((e) => e.clave)).toEqual(['QLeMH5mQgh28sa5o', 'QLeMH5mQgh28sa5o#2']);
+
+    const build = enanoDeputy();
+    build.featureChoices = { 'QLeMH5mQgh28sa5o': 'alchemy', 'QLeMH5mQgh28sa5o#2': 'blacksmithing' };
+    const conAmbas = computeCharacter(build, emptyState(), content);
+    const elegidas = conAmbas.eleccionesDeRasgos
+      .filter((e) => e.itemId === 'QLeMH5mQgh28sa5o')
+      .map((e) => e.elegido);
+    expect(elegidas).toEqual(['alchemy', 'blacksmithing']);
+  });
+
+  it('dos FUENTES distintas que otorgan lo mismo siguen contando una sola vez', () => {
+    /*
+     * El caso opuesto, y por eso la cuenta es por ítem y se queda con el máximo
+     * en vez de sumar: Munitions Crafter y Alchemist Dedication otorgan las dos
+     * Alchemical Crafting, y eso es UNA dote, no dos.
+     */
+    const sheet = computeCharacter(enanoDeputy(), emptyState(), content);
+    const repetidas = sheet.features.filter((f) => f.name === 'Alchemical Crafting');
+    expect(repetidas.length).toBeLessThanOrEqual(1);
   });
 
   it('el trasfondo otorga su dote: Deputy da Experienced Tracker', () => {

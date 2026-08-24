@@ -129,6 +129,14 @@ export interface Feat extends ContentBase {
 }
 
 export interface ClassFeature extends ContentBase {
+  /**
+   * Cuál de las veces que un mismo ítem la otorga es esta.
+   *
+   * Casi siempre 1 o ausente. Anvil Dwarf otorga Specialty Crafting dos veces a
+   * propósito —dos especialidades—, y sin esto las dos se pisan: comparten id,
+   * así que compartirían la clave con la que se guarda lo elegido.
+   */
+  ocurrencia?: number;
   /** Los linajes de sorcerer traen su tradicion (arcane/divine/occult/primal). */
   tradition?: string | null;
   /** Nombres de los focus spells que nombra el texto (linajes de sorcerer). */

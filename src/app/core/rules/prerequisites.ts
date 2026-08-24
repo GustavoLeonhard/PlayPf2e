@@ -21,8 +21,15 @@ export interface PrerequisiteContext {
   perception: ProficiencyRank;
   /** Nombres (en minuscula) de las dotes y rasgos que ya tiene el personaje. */
   ownedNames: Set<string>;
-  /** Todas las dotes del dataset: distingue "dote que te falta" de "texto que no entiendo". */
-  knownFeatNames: Set<string>;
+  /** El alineamiento del personaje en dos letras ("LG", "NE"), o null. */
+  alignment?: string | null;
+  /** `normal`, `low-light-vision` o `darkvision`. */
+  vision?: string;
+  /**
+   * Todo lo nombrable del dataset —dotes y rasgos—: distingue "algo del juego
+   * que te falta" de "texto que no entiendo".
+   */
+  knownNames: Set<string>;
   level: number;
 }
 
@@ -43,6 +50,59 @@ const normalize = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim
 
 export function evaluatePrerequisite(raw: string, ctx: PrerequisiteContext): PrerequisiteStatus {
   const text = normalize(raw);
+
+  /*
+   * "Druid Dedication or Wizard Dedication", "harmful font or healing font".
+   *
+   * Alcanza con cumplir una. Si ninguna se cumple pero alguna no se entiende,
+   * el resultado es 'unknown' y no 'unmet': decir que no cumplís algo que no
+   * supiste leer es peor que no decir nada.
+   */
+  if (/ or /.test(text) && !/^(untrained|trained|expert|master|legendary) in /.test(text)) {
+    const partes = text.split(/ or /).map((p) => evaluatePrerequisite(p, ctx));
+    if (partes.includes('met')) return 'met';
+    return partes.includes('unknown') ? 'unknown' : 'unmet';
+  }
+
+  /*
+   * Visión.
+   *
+   * Va antes de la búsqueda por nombre y no después: "Darkvision" TAMBIÉN es un
+   * rasgo de ancestría con nombre propio, así que un enano —que la tiene por
+   * ancestría, no como rasgo listado— salía como que no la cumple. Un falso
+   * "no cumplís" es el peor resultado posible acá: manda al jugador a buscar
+   * algo que ya tiene.
+   */
+  if (text === 'darkvision' || text === 'low-light vision') {
+    const propia = ctx.vision ?? 'normal';
+    if (propia === 'darkvision') return 'met'; // la oscuridad cubre a la penumbra
+    if (text === 'low-light vision') return propia === 'low-light-vision' ? 'met' : 'unmet';
+    return 'unmet';
+  }
+
+  /*
+   * Alineamiento: "evil alignment", "chaotic good alignment", y los tenets de
+   * Champion, que son el alineamiento con otro nombre.
+   */
+  const alineamiento = text.match(/^(?:tenets of (\w+)|([\w\s]+?) alignment)$/);
+  if (alineamiento) {
+    if (!ctx.alignment) return 'unknown';
+    const pedido = (alineamiento[1] ?? alineamiento[2]).trim();
+    const letras = ctx.alignment.toUpperCase();
+    const INICIALES: Record<string, string> = {
+      lawful: 'L', chaotic: 'C', good: 'G', evil: 'E', neutral: 'N',
+    };
+    const partes = pedido.split(' ');
+    // Todas las palabras pedidas tienen que estar en las letras del PJ.
+    const ok = partes.every((palabra) => {
+      const inicial = INICIALES[palabra];
+      if (!inicial) return false;
+      // "neutral" puede ser cualquiera de las dos posiciones.
+      return letras.includes(inicial);
+    });
+    if (partes.some((p) => !INICIALES[p])) return 'unknown';
+    return ok ? 'met' : 'unmet';
+  }
 
   // "trained in Athletics", "expert in Perception", "master in Stealth"
   const proficiency = text.match(/^(untrained|trained|expert|master|legendary) in (.+)$/);
@@ -85,7 +145,7 @@ export function evaluatePrerequisite(raw: string, ctx: PrerequisiteContext): Pre
 
   // El prerrequisito es el nombre de otra dote o rasgo: sabemos si lo tiene.
   if (ctx.ownedNames.has(text)) return 'met';
-  if (ctx.knownFeatNames.has(text)) return 'unmet';
+  if (ctx.knownNames.has(text)) return 'unmet';
 
   return 'unknown';
 }

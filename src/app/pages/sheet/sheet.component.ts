@@ -519,7 +519,7 @@ export class SheetComponent implements OnInit {
     const record = this.record();
     if (!record) return;
 
-    record.build.featureChoices = { ...(record.build.featureChoices ?? {}), [eleccion.itemId]: opcion.valor };
+    record.build.featureChoices = { ...(record.build.featureChoices ?? {}), [eleccion.clave]: opcion.valor };
 
     /*
      * Si la elección otorga un objeto, entra al inventario marcado con

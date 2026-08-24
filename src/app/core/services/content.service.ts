@@ -149,7 +149,9 @@ export class ContentService {
       featureById: new Map([...features, ...ancestryFeatures].map((f) => [f.id, f])),
       equipmentById: new Map(equipment.map((e) => [e.id, e])),
       actionById: new Map(actions.map((a) => [a.id, a])),
-      featNames: new Set(feats.map((f) => f.name.toLowerCase())),
+      nombresConocidos: new Set(
+        [...feats, ...features, ...ancestryFeatures].map((f) => f.name.toLowerCase()),
+      ),
       deityById: new Map(deities.map((d) => [d.id, d])),
       effectById: new Map(effects.map((e) => [e.id, e])),
     };

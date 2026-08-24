@@ -13,6 +13,13 @@ export interface PickerOption {
   description?: string;
   /** Texto libre del dataset: se muestra como advertencia, nunca bloquea. */
   prerequisites?: string[];
+  /**
+   * Si el personaje cumple los prerrequisitos, cuando se pudo evaluar.
+   *
+   * `undefined` = la pantalla no lo calculó (el asistente de creación, donde
+   * todavía no hay personaje contra el cual medir). Ahí el filtro no aparece.
+   */
+  requisitos?: 'met' | 'unmet' | 'unknown';
   source?: string;
   /**
    * No se puede elegir, pero se muestra igual con el motivo. Sacarla de la
@@ -38,6 +45,26 @@ export interface PickerOption {
           (input)="query.set($any($event.target).value)"
         />
 
+        <!--
+          El filtro solo aparece si la pantalla evaluó los requisitos. Un filtro
+          que no puede filtrar nada es peor que no tenerlo.
+        -->
+        @if (evaluado()) {
+          <div class="filtro-req">
+            @for (f of FILTROS; track f.valor) {
+              <button
+                type="button"
+                class="chip-filtro"
+                [class.on]="filtro() === f.valor"
+                [title]="f.ayuda"
+                (click)="filtro.set(f.valor)"
+              >
+                {{ f.rotulo }} <span class="cuenta">{{ cuentaDe(f.valor) }}</span>
+              </button>
+            }
+          </div>
+        }
+
         <ul class="list">
           @for (opt of filtered(); track opt.id) {
             <li>
@@ -50,6 +77,13 @@ export interface PickerOption {
                 type="button"
                 (click)="selectedId.set(opt.id)"
               >
+                @if (opt.requisitos && opt.requisitos !== 'met') {
+                  <span
+                    class="marca"
+                    [class.dudosa]="opt.requisitos === 'unknown'"
+                    [title]="opt.requisitos === 'unmet' ? 'No cumplís los requisitos' : 'No se pudieron verificar'"
+                  >{{ opt.requisitos === 'unmet' ? '✗' : '?' }}</span>
+                }
                 <span class="name">{{ opt.name }}</span>
                 @if (opt.motivo) {
                   <span class="motivo">{{ opt.motivo }}</span>
@@ -111,6 +145,51 @@ export interface PickerOption {
       .picker {
         grid-template-columns: 1fr;
       }
+    }
+
+    .filtro-req {
+      display: flex;
+      gap: 0.3rem;
+      margin-top: 0.5rem;
+    }
+
+    .chip-filtro {
+      flex: 1;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      font: inherit;
+      font-size: 0.72rem;
+      padding: 0.15rem 0.3rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .chip-filtro:hover {
+      color: var(--text);
+    }
+
+    .chip-filtro.on {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* La cuenta es el dato que decide si vale la pena apretar el filtro. */
+    .chip-filtro .cuenta {
+      opacity: 0.65;
+    }
+
+    /* La marca va ANTES del nombre: leyendo la lista de arriba abajo, se ve
+       cuáles descartar sin tener que llegar al final del renglón. */
+    .marca {
+      color: var(--danger);
+      font-size: 0.8em;
+      margin-right: 0.25rem;
+    }
+
+    .marca.dudosa {
+      color: var(--muted);
     }
 
     .list {
@@ -209,9 +288,41 @@ export class OptionPickerComponent {
 
   readonly query = signal('');
 
+  /** Qué mostrar según los requisitos. */
+  readonly filtro = signal<'todos' | 'met' | 'unmet'>('todos');
+
+  readonly FILTROS = [
+    { valor: 'todos' as const, rotulo: 'Todas', ayuda: 'Sin filtrar por requisitos' },
+    { valor: 'met' as const, rotulo: 'Cumplo', ayuda: 'Solo las que cumplís' },
+    {
+      valor: 'unmet' as const,
+      rotulo: 'No cumplo',
+      ayuda: 'Las que no cumplís. Las que no se pudieron verificar quedan acá, marcadas con ?',
+    },
+  ];
+
+  /** Si la pantalla evaluó los requisitos. Sin eso, el filtro no se muestra. */
+  readonly evaluado = computed(() => this.options().some((o) => o.requisitos !== undefined));
+
+  /**
+   * Lo que no se pudo verificar cuenta como "no cumplo", pero marcado aparte.
+   *
+   * Es la decisión importante del filtro: 22% de los prerrequisitos del dataset
+   * no se pueden leer (ver prerequisites.spec.ts). Si esos cayeran en "cumplo",
+   * el filtro mentiría; en un cajón propio nadie lo miraría. Van con las que no
+   * cumplís, con un "?" que dice que ahí decidís vos.
+   */
+  private pasa(o: PickerOption, filtro: 'todos' | 'met' | 'unmet'): boolean {
+    if (filtro === 'todos' || o.requisitos === undefined) return true;
+    return filtro === 'met' ? o.requisitos === 'met' : o.requisitos !== 'met';
+  }
+
+  cuentaDe = (filtro: 'todos' | 'met' | 'unmet') => this.options().filter((o) => this.pasa(o, filtro)).length;
+
   readonly filtered = computed(() => {
     const q = this.query().toLowerCase().trim();
-    const all = this.options();
+    const filtro = this.filtro();
+    const all = this.options().filter((o) => this.pasa(o, filtro));
     if (!q) return all.slice(0, 300);
     return all.filter((o) => o.name.toLowerCase().includes(q) || o.traits?.some((t) => t.includes(q))).slice(0, 300);
   });

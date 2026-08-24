@@ -32,8 +32,13 @@ causaba— está en [BITACORA.md](BITACORA.md). Acá va solo el estado.
   redimensionan y se sacan a su propia pestaña.
 - **Las tiradas de la hoja llegan solas** a la mesa donde está ese personaje,
   desde donde sea que la tengas abierta, con la visibilidad que elijas.
-- **Notas compartidas**, cada una con su icono, y con aviso cuando dos personas
-  editan la misma.
+- **Notas compartidas**, cada una con su icono. **No se guardan solas**: lo que
+  escribís es tuyo hasta que apretás Guardar, así nadie ve un párrafo a medio
+  escribir. El borrador se anota en tu navegador en cada tecla, con la versión
+  desde la que partiste, así que cerrar la pestaña no lo pierde y volver no pisa
+  en silencio lo que otro publicó mientras no estabas. Si alguien se adelanta,
+  se avisa mientras escribís y al publicar elegís vos: descartar lo tuyo o
+  publicar igual.
 
 ### Perfil y despliegue
 
@@ -173,6 +178,15 @@ dragón cambia el daño de los conjuros del linaje, que viven en otro lado.
   dashboard.
 - **Las habilidades no tienen descripción**: no hay `skills.json` en el pack.
   Entra en el overlay (E3).
+- **Dotes de Adventure Path que apuntan a reglas que no son ítems.** El caso
+  testigo es *Additional Circus Trick* (Extinction Curse Player's Guide): su
+  prerrequisito es "You must have a signature trick" y su efecto es darle un
+  rasgo más a esa "signature trick", pero el *signature trick* y la acción
+  *Perform a Trick* son reglas de campaña de esa guía, no ítems de ningún pack.
+  Es la única dote con rasgo `circus` del dataset, y la única que menciona esas
+  dos cosas. Por eso su `rules` viene vacío y no hay nada que la app pueda
+  calcular ni a qué enlazar el prerrequisito: se muestra el texto y listo.
+  Foundry tampoco la modela. No es un fallo del importador.
 - **`invested`** está en el modelo y no lo lee nadie: los objetos que hay que
   invertir no están modelados.
 - Las descripciones viajan en `<pack>-desc.json` y se bajan bajo demanda: abrir

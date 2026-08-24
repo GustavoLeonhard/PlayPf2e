@@ -18,7 +18,7 @@ import { effectModifiers, modificadoresDeReglas, type Effect, type ReglaEfecto }
 import { eleccionesAbiertasDe, eleccionesDe, textoDeEleccion, type EleccionDeRasgo } from './elecciones';
 import { RAGE_SLUG, rageDamage, rageSheet, type RageSheet } from './rabia';
 import { buildStat, mod, type Modifier, type Stat } from './modifiers';
-import { evaluatePrerequisite, type PrerequisiteStatus } from './prerequisites';
+import { evaluatePrerequisite, type PrerequisiteContext, type PrerequisiteStatus } from './prerequisites';
 import {
   CASTERS,
   cantripRank,
@@ -169,7 +169,16 @@ export interface ContentIndex {
   /** Acciones: los deeds que otorgan las vías del Gunslinger viven acá. */
   actionById: Map<string, ClassFeature>;
   /** Nombres de todas las dotes en minúscula; se usa para evaluar prerrequisitos. */
-  featNames: Set<string>;
+  /**
+   * Todo lo que EXISTE en el juego y tiene nombre propio: dotes, rasgos de
+   * clase y de ancestría.
+   *
+   * Sirve para separar "esto es algo del juego que no tenés" de "esto es texto
+   * que no sé leer". Incluye los rasgos y no solo las dotes porque la mitad de
+   * los prerrequisitos apuntan a un rasgo de clase —Spellstrike, Arcane
+   * Cascade, Ki Spells— y mirando solo las dotes quedaban como ilegibles.
+   */
+  nombresConocidos: Set<string>;
   deityById: Map<string, Deity>;
 }
 
@@ -382,8 +391,10 @@ export interface CharacterSheet {
   };
   strikes: StrikeSheet[];
   proficiencies: Proficiencies;
+  /** Con qué evaluar los prerrequisitos de una dote que todavía no elegiste. */
+  prerequisitos: PrerequisiteContext;
   /** Rasgos activos al nivel actual, con su origen para agruparlos en la hoja. */
-  features: { name: string; level: number; id: string | null; source: FeatSource }[];
+  features: { name: string; level: number; id: string | null; ocurrencia?: number; source: FeatSource }[];
   feats: { name: string; level: number; slot: string; id: string; source: FeatSource }[];
   /** null si la clase no lanza conjuros. */
   spellcasting: SpellcastingSheet | null;
@@ -499,26 +510,45 @@ function resolveGrants(
   content: ContentIndex,
   elecciones: Record<string, string> = {},
 ): ClassFeature[] {
-  // El pack a veces repite el mismo grant (Anvil Dwarf trae Specialty Crafting
-  // dos veces): se otorga una sola.
-  const vistos = new Set<string>();
-  const resueltos = items.flatMap((item) =>
-    (item.rules ?? [])
-      .filter((r) => r.key === 'GrantItem' && r.id && cumpleEleccion(r, item, elecciones))
-      .map(
-        (r) =>
-          content.featureById.get(r.id!) ??
-          content.actionById.get(r.id!) ??
-          (content.featById.get(r.id!) as unknown as ClassFeature | undefined),
-      )
-      .filter((f): f is ClassFeature => !!f),
-  );
+  /*
+   * Repetir un grant DENTRO de un mismo ítem es intencional; repetirlo entre
+   * ítems distintos, no.
+   *
+   * Anvil Dwarf trae `GrantItem` de Specialty Crafting **dos veces**, y su
+   * texto dice por qué: "you can pick two different specialties instead of
+   * one". Antes se deduplicaba todo por id y el jugador se quedaba con una sola
+   * especialidad, en silencio.
+   *
+   * El otro caso es el opuesto: Munitions Crafter y Alchemist Dedication
+   * otorgan los dos Alchemical Crafting, y ahí sí es una sola dote. Por eso la
+   * cuenta es por ítem y se queda con el máximo, no con la suma.
+   */
+  const emitidas = new Map<string, number>();
+  const salida: ClassFeature[] = [];
 
-  return resueltos.filter((f) => {
-    if (vistos.has(f.id)) return false;
-    vistos.add(f.id);
-    return true;
-  });
+  for (const item of items) {
+    const enEsteItem = new Map<string, number>();
+
+    for (const regla of item.rules ?? []) {
+      if (regla.key !== 'GrantItem' || !regla.id || !cumpleEleccion(regla, item, elecciones)) continue;
+
+      const otorgada =
+        content.featureById.get(regla.id) ??
+        content.actionById.get(regla.id) ??
+        (content.featById.get(regla.id) as unknown as ClassFeature | undefined);
+      if (!otorgada) continue;
+
+      const vez = (enEsteItem.get(otorgada.id) ?? 0) + 1;
+      enEsteItem.set(otorgada.id, vez);
+
+      // Solo si este ítem la otorga MÁS veces de las que ya lleva emitidas.
+      if ((emitidas.get(otorgada.id) ?? 0) >= vez) continue;
+      emitidas.set(otorgada.id, vez);
+      salida.push({ ...otorgada, ocurrencia: vez });
+    }
+  }
+
+  return salida;
 }
 
 /**
@@ -994,7 +1024,7 @@ export function computeCharacter(
   // --- features otorgados automaticamente hasta el nivel actual
   // El origen se guarda desde el principio: la hoja agrupa los rasgos por de donde
   // vienen, y una vez mezclados en una sola lista ya no se puede saber.
-  const granted: { name: string; level: number; id: string | null; source: FeatSource }[] = [
+  const granted: { name: string; level: number; id: string | null; ocurrencia?: number; source: FeatSource }[] = [
     ...(pf2class?.features ?? []).map((f) => ({ ...f, source: 'class' as FeatSource })),
     ...(ancestry?.features ?? []).map((f) => ({ ...f, source: 'ancestry' as FeatSource })),
   ].filter((f) => f.level <= level);
@@ -1028,13 +1058,20 @@ export function computeCharacter(
       name: f.name,
       level: f.level ?? 1,
       id: f.id,
+      ocurrencia: f.ocurrencia,
       source: 'class' as FeatSource,
     })),
   );
 
   activeFeatures.push(...grantedByHeritage);
   granted.push(
-    ...grantedByHeritage.map((f) => ({ name: f.name, level: f.level ?? 1, id: f.id, source: 'ancestry' as FeatSource })),
+    ...grantedByHeritage.map((f) => ({
+      name: f.name,
+      level: f.level ?? 1,
+      id: f.id,
+      ocurrencia: f.ocurrencia,
+      source: 'ancestry' as FeatSource,
+    })),
   );
   granted.push(
     ...featsDelTrasfondo.map((f) => ({ name: f.name, level: f.level ?? 1, id: f.id, source: 'background' as FeatSource })),
@@ -1076,11 +1113,18 @@ export function computeCharacter(
     equipoIndirecto: (id: string) => equipoDeUnPaso(id, content),
   };
 
+  /*
+   * La `ocurrencia` viaja hasta acá porque es lo que separa dos elecciones del
+   * MISMO ítem. Anvil Dwarf otorga Specialty Crafting dos veces y cada una
+   * elige su especialidad; sin distinguirlas, las dos escriben en la misma
+   * clave y el jugador se queda con una.
+   */
   const eleccionesDeRasgos = [...activeFeatures, ...chosenFeats].flatMap((item) =>
     eleccionesDe(item, {
       elegidas: build.featureChoices ?? {},
       objetos: buscadorDeObjetos,
       dotesTomadas: chosenFeats,
+      ocurrencia: 'ocurrencia' in item ? ((item as { ocurrencia?: number }).ocurrencia ?? 1) : 1,
     }),
   );
 
@@ -1849,8 +1893,10 @@ export function computeCharacter(
     skillRanks,
     perception: prof.perception,
     ownedNames,
-    knownFeatNames: content.featNames,
+    knownNames: content.nombresConocidos,
     level,
+    alignment: build.alignment,
+    vision: build.visionOverride ?? ancestry?.vision ?? 'normal',
   };
 
   const acknowledged = new Set(build.acknowledgedWarnings ?? []);
@@ -1957,10 +2003,27 @@ export function computeCharacter(
     strikes,
     armor: armorSheet,
     proficiencies: prof,
-    // Dos fuentes distintas pueden otorgar lo mismo (Munitions Crafter y Alchemist
-    // Dedication otorgan Alchemical Crafting): se lista una sola vez.
+    /*
+     * Con qué evaluar los prerrequisitos de una dote que TODAVÍA no elegiste.
+     *
+     * El motor ya lo arma para avisar de las que sí tenés; exponerlo evita que
+     * la pantalla de subir de nivel lo rearme por su cuenta y las dos versiones
+     * se separen con el tiempo.
+     */
+    prerequisitos: prerequisiteContext,
+    /*
+     * Dos fuentes distintas pueden otorgar lo mismo (Munitions Crafter y
+     * Alchemist Dedication otorgan Alchemical Crafting): se lista una sola vez.
+     *
+     * La `ocurrencia` es lo que salva el caso contrario: Anvil Dwarf otorga
+     * Specialty Crafting dos veces a propósito, y esas dos son distintas entre
+     * sí porque cada una elige su especialidad.
+     */
     features: granted.filter(
-      (f, i) => granted.findIndex((other) => (other.id ?? other.name) === (f.id ?? f.name)) === i,
+      (f, i) =>
+        granted.findIndex(
+          (other) => (other.id ?? other.name) === (f.id ?? f.name) && other.ocurrencia === f.ocurrencia,
+        ) === i,
     ),
     feats: chosenFeatEntries.map((c) => ({
       name: content.featById.get(c.id!)?.name ?? c.id!,
