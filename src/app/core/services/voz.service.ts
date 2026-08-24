@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import type { DailyCall, DailyParticipant } from '@daily-co/daily-js';
 
 import { AuthService } from './auth.service';
@@ -79,11 +79,17 @@ export class VozService {
       // alguien entra al canal, y la mayoría de las sesiones son solo chat.
       const { default: Daily } = await import('@daily-co/daily-js');
 
-      const call = Daily.createCallObject({
-        // Entrás mudo y sin cámara: nadie quiere aparecer de golpe en la mesa.
-        audioSource: false,
-        videoSource: false,
-      });
+      /*
+       * OJO CON `audioSource: false`.
+       *
+       * Estaba así para entrar mudo, y el efecto era que el micrófono y la
+       * cámara NO SE PODÍAN PRENDER NUNCA: unirse sin fuente significa que el
+       * dispositivo no se toma, y `setLocalAudio(true)` no tiene qué dejar de
+       * silenciar. Se entra igual de mudo con `startAudioOff` al unirse, pero
+       * con los dispositivos ya tomados, que es lo que hace que los botones
+       * después funcionen.
+       */
+      const call = Daily.createCallObject();
       this.call = call;
 
       call
@@ -97,7 +103,14 @@ export class VozService {
         });
 
       const { url, token } = await this.sala(partyId, inviteToken);
-      await call.join({ url, ...(token ? { token } : {}), userName: userId });
+      await call.join({
+        url,
+        ...(token ? { token } : {}),
+        userName: userId,
+        // Mudo y sin cámara desde el arranque: nadie quiere aparecer de golpe.
+        startAudioOff: true,
+        startVideoOff: true,
+      });
 
       this.estado.set('adentro');
       this.refrescar();
@@ -165,6 +178,18 @@ export class VozService {
 
   /** La cara de un miembro, por su id de Supabase. */
   cara = (userId: string): Cara | null => this.caras().get(userId) ?? null;
+
+  /**
+   * Los DEMÁS de la llamada, sin vos.
+   *
+   * Es lo que se reproduce. Que no esté tu propia cara acá no es un detalle:
+   * colgar tu micrófono de un `<audio>` es escucharte a vos mismo con retardo,
+   * o directamente un acople.
+   */
+  readonly remotas = computed(() => {
+    const yo = this.auth.userId();
+    return [...this.caras().values()].filter((c) => c.userId !== yo);
+  });
 
   /**
    * Rearma el mapa de caras desde lo que dice Daily.

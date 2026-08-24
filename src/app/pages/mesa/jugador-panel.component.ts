@@ -41,13 +41,11 @@ import type { PartyMemberView } from '../../core/models/party.model';
           }
 
           <!--
-            El audio va aparte del video y SIEMPRE, aunque la camara este
-            apagada: la voz no depende de que se vea la cara. Y va oculto
-            porque un <audio> con controles en cada ventana no tiene sentido.
+            El audio NO va aca. Vivia en esta ventana y el efecto era que no se
+            escuchaba a nadie salvo que le abrieras la ventana: escuchar no
+            puede depender de eso. Ahora vive en la mesa, una sola vez por
+            participante. Aca solo se muestra si esta hablando.
           -->
-          @if (audio(); as track) {
-            <audio [appTrack]="track" autoplay></audio>
-          }
 
           @if (enElCanal()) {
             <span class="micro" [class.mudo]="!audio()">{{ audio() ? '🔊' : '🔇' }}</span>

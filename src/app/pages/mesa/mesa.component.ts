@@ -186,6 +186,21 @@ import { TrackDirective } from '../../shared/track.directive';
           }
         }
 
+        <!--
+          El audio de la llamada. Va aca, en el lienzo, y no en la ventana de
+          cada jugador: si dependiera de la ventana, no escuchabas a nadie hasta
+          abrirle la suya. Son elementos sin interfaz; el volumen se maneja
+          desde el sistema.
+
+          La lista de remotas excluye tu propia cara a proposito: colgar tu
+          microfono de un audio es escucharte con retardo, o acoplar.
+        -->
+        @for (c of voz.remotas(); track c.userId) {
+          @if (c.audio; as pista) {
+            <audio [appTrack]="pista" autoplay></audio>
+          }
+        }
+
         @if (!hayAlgoAbierto()) {
           <p class="muted vacio-lienzo">Abrí lo que necesites con los botones de la derecha.</p>
         }
