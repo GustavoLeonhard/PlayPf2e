@@ -7,9 +7,17 @@ import { Injectable, signal } from '@angular/core';
  * eso el tipo es abierto: la botonera crece con lo que escribís, no con lo que
  * está escrito acá.
  */
-export type TipoDeVentana = 'pj' | 'dados' | `nota:${string}`;
+export type TipoDeVentana = 'pj' | 'dados' | `nota:${string}` | `jugador:${string}`;
 
 export const claveDeNota = (id: string): TipoDeVentana => `nota:${id}`;
+
+/**
+ * La ventana de otro jugador de la mesa, por su id de usuario.
+ *
+ * Aparece y desaparece con la presencia, no con lo que vos abras: si alguien
+ * cierra la pestaña, su ventana se va sola.
+ */
+export const claveDeJugador = (userId: string): TipoDeVentana => `jugador:${userId}`;
 
 export interface EstadoDeVentana {
   abierta: boolean;
@@ -32,6 +40,12 @@ const POR_DEFECTO: Record<string, EstadoDeVentana> = {
  * y que queden una encima de otra obliga a mover dos antes de leer nada.
  */
 const NOTA_POR_DEFECTO: EstadoDeVentana = { abierta: false, x: 340, y: 60, ancho: 420, alto: 340 };
+
+/*
+ * Las de jugador nacen chicas y a la derecha: son caras, no documentos. El alto
+ * da para el 16:9 del video mas la linea del nombre.
+ */
+const JUGADOR_POR_DEFECTO: EstadoDeVentana = { abierta: false, x: 980, y: 60, ancho: 280, alto: 220 };
 const ESCALON = 28;
 
 /**
@@ -69,17 +83,25 @@ export class VentanasService {
   }
 
   de(tipo: TipoDeVentana): EstadoDeVentana {
-    const base = POR_DEFECTO[tipo] ?? this.nacimientoDeNota(tipo);
+    const base = POR_DEFECTO[tipo] ?? this.nacimiento(tipo);
     return { ...base, ...this.estado()[tipo] };
   }
 
-  /** Una nota nueva nace un escalón más abajo que la anterior. */
-  private nacimientoDeNota(tipo: TipoDeVentana): EstadoDeVentana {
-    const abiertas = Object.keys(this.estado()).filter((k) => k.startsWith('nota:') && k !== tipo).length;
+  /**
+   * Dónde nace una ventana que no tiene lugar fijo.
+   *
+   * Escalonadas por familia: tres notas seguidas —o tres jugadores— apiladas en
+   * el mismo punto obligan a mover dos antes de leer nada. Cada familia lleva
+   * su propia cuenta para que las caras no empujen a las notas.
+   */
+  private nacimiento(tipo: TipoDeVentana): EstadoDeVentana {
+    const familia = tipo.startsWith('jugador:') ? 'jugador:' : 'nota:';
+    const base = familia === 'jugador:' ? JUGADOR_POR_DEFECTO : NOTA_POR_DEFECTO;
+    const abiertas = Object.keys(this.estado()).filter((k) => k.startsWith(familia) && k !== tipo).length;
     return {
-      ...NOTA_POR_DEFECTO,
-      x: NOTA_POR_DEFECTO.x + (abiertas % 6) * ESCALON,
-      y: NOTA_POR_DEFECTO.y + (abiertas % 6) * ESCALON,
+      ...base,
+      x: base.x + (abiertas % 6) * ESCALON,
+      y: base.y + (abiertas % 6) * ESCALON,
     };
   }
 

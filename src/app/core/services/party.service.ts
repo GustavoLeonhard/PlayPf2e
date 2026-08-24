@@ -188,7 +188,7 @@ export class PartyService {
       characters: { name: string; level: number } | null;
     })[];
 
-    const nombres = await this.displayNames(filas.map((m) => m.user_id));
+    const perfiles = await this.perfiles(filas.map((m) => m.user_id));
     const conectados = this.online();
 
     return filas.map((m) => ({
@@ -197,25 +197,31 @@ export class PartyService {
       role: m.role,
       character_id: m.character_id,
       joined_at: m.joined_at,
-      displayName: nombres.get(m.user_id) || 'Sin nombre',
+      displayName: perfiles.get(m.user_id)?.display_name || 'Sin nombre',
+      avatar: perfiles.get(m.user_id)?.avatar ?? '',
       characterName: m.characters ? `${m.characters.name} (nivel ${m.characters.level})` : null,
       online: conectados.has(m.user_id),
     }));
   }
 
   /**
-   * Los nombres, en una consulta aparte.
+   * El nombre y el avatar de cada uno, en una consulta aparte.
    *
    * No se pueden traer con un embed de PostgREST porque `party_members.user_id`
    * apunta a `auth.users`, no a `profiles`: sin clave foránea entre esas dos
    * tablas, no hay relación que resolver.
+   *
+   * El avatar viene de `profiles` y no del retrato del personaje a propósito:
+   * `characters` es de lectura propia (`auth.uid() = user_id`), así que el
+   * retrato del PJ de otro jugador es ilegible. El perfil sí es público entre
+   * autenticados, que es de donde el chat ya saca las caritas.
    */
-  private async displayNames(userIds: string[]): Promise<Map<string, string>> {
+  private async perfiles(userIds: string[]): Promise<Map<string, Profile>> {
     const unicos = [...new Set(userIds)];
     if (!unicos.length) return new Map();
 
-    const { data } = await this.client.from('profiles').select('id, display_name').in('id', unicos);
-    return new Map(((data ?? []) as Profile[]).map((p) => [p.id, p.display_name]));
+    const { data } = await this.client.from('profiles').select('id, display_name, avatar').in('id', unicos);
+    return new Map(((data ?? []) as Profile[]).map((p) => [p.id, p]));
   }
 
   /** Sentarse con un personaje, o levantarse pasando null. */

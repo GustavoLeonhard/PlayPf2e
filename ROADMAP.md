@@ -62,10 +62,73 @@ Conviene escribir la policy, probarla y recién después usarla.
 
 ### 2. Voz y video
 
-- [ ] WebRTC entre navegadores, con Supabase Broadcast como señalización
-- [ ] **Necesita un servidor TURN**, que no es gratis: sin él, dos jugadores
-      detrás de ciertos routers no se conectan. Alternativa: LiveKit, Daily o Jitsi
-- [ ] En malla directa aguanta 4 o 5 personas; más pide un servidor que mezcle
+Decidido: **Daily**, en modo *call object*. Se descartó el WebRTC a mano porque
+necesita un TURN propio que no es gratis, y la malla directa se cae pasando las
+5 personas. Se descartó Cloudflare RealtimeKit porque hoy es gratis solo
+mientras dure la beta; Daily da 10.000 minutos-participante por mes de forma
+permanente, y una mesa semanal de 4 h con 6 personas gasta ~6.200.
+
+Tiene que ser call object y no la UI prefabricada: la prefabricada es un iframe
+monolítico y no se puede repartir en una ventana por jugador.
+
+- [x] **Entrega 1 — las caras, sin proveedor.** Una ventana flotante por jugador
+      conectado, con su avatar de icono en la botonera. Se apoya en la presencia
+      de Supabase que ya existía (`party.service.ts:watchPresence`).
+- [x] **Entrega 2 — el canal.** `core/services/voz.service.ts` con daily-js en
+      modo call object; entrás mudo y sin cámara y cada cosa se prende aparte.
+      El icono de la botonera muestra la cámara en vivo cuando está prendida.
+      Dominio `pf2e.daily.co`; la clave vive en `.env`, nunca en el bundle.
+- [x] **Entrega 2b — cerrar la sala.** `supabase/functions/daily-sala/`
+      desplegada. La sala es **privada**: sin token firmado no se entra, y el
+      token lo da la función solo si RLS te deja leer la fila de la partida. Se
+      crea sola en cada mesa nueva, y si encuentra una sala vieja pública la
+      cierra. `tools/daily/sala.mjs` queda como respaldo, ya no hace falta.
+
+      Dos cosas que costaron y conviene no volver a pisar: la función tiene que
+      permitir `apikey` y `x-client-info` en el preflight —`supabase-js` los
+      manda siempre, y si el CORS los rechaza `functions.invoke` falla sin dejar
+      rastro en los logs de la función, porque nunca la llamaron—; y crear la
+      sala si no existe no alcanza, hay que **forzarla a privada** si ya existía,
+      o una mesa vieja se queda abierta para siempre sin que nadie se entere.
+- [ ] **Entrega 3 — la pantalla externa.** Sacar las caras a un segundo monitor.
+
+**Ciclo de vida de la sala, para no volver a deducirlo.** La sala no tiene
+vencimiento y no se cierra cuando se van todos: lo que termina es la sesión, y
+Daily cobra minutos-participante, así que una sala parada no cuesta nada y la
+mesa de la semana siguiente entra a la misma. El `exp` del token (4 h) controla
+**hasta cuándo se puede entrar**, no hasta cuándo se puede quedar: echar a
+alguien a mitad de llamada necesitaría `eject_at_token_exp`, que a propósito no
+está puesto —una sesión de juego larga no se tiene que cortar sola.
+
+Dos cosas pendientes de eso:
+
+- [ ] **Sacar a alguien de la mesa no lo saca de la llamada** por hasta 4 h: la
+      RLS se chequea al firmar el token, no después. La palanca que sí sirve es
+      rotar el `invite_token`, que cambia el nombre de la sala y deja huérfanos
+      todos los tokens; no desconecta al que ya está adentro, eso sí.
+- [ ] **Salas huérfanas**: borrar una partida o rotar su invitación deja la sala
+      vieja en la cuenta. No cuesta ni deja entrar a nadie sin token, pero se
+      acumulan. Falta un borrado, probablemente en el mismo lugar donde se borra
+      la partida.
+
+Sin verificar todavía, porque el navegador de pruebas no tiene cámara: que el
+video y el audio se vean y se oigan de verdad, y que el icono de la botonera
+pase a mostrar la cámara. Lo que sí está probado punta a punta es unirse
+—confirmado contra `api.daily.co/v1/presence`, con el id de Supabase viajando
+como `userName`—, salir, y que la sala quede vacía al salir.
+
+**El avatar sale del perfil, no del retrato del PJ.** `characters` tiene lectura
+propia (`auth.uid() = user_id`), así que el retrato de otro es ilegible. Cambiarlo
+es la policy del punto 1 de este roadmap; hasta entonces, `profiles.avatar`.
+
+**Ojo con sacar el video afuera.** Nuestras ventanas sueltas son un documento
+aparte que se resincroniza desde el servidor, y un MediaStream no viaja por el
+servidor: si esa ventana se uniera sola a la llamada entraría como un segundo
+participante, con eco y el doble de minutos. La salida es **Document
+Picture-in-Picture**, que mueve los nodos del DOM sin cambiar de documento, así
+que los `<video>` se llevan su stream puesto. Chrome y Edge desde la 130,
+Firefox desde la 151; Safari y móviles no lo tienen, y ahí las caras se quedan
+adentro del lienzo.
 
 ### 3. Deudas de reglas
 

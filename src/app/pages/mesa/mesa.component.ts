@@ -2,15 +2,24 @@ import { Component, computed, effect, inject, input, signal, viewChild, type Ele
 import { RouterLink } from '@angular/router';
 
 import { iniciales } from '../../core/rules/imagen';
-import type { Party } from '../../core/models/party.model';
-import { VentanasService, claveDeNota, type TipoDeVentana } from '../../core/services/ventanas.service';
+import type { Party, PartyMemberView } from '../../core/models/party.model';
+import {
+  VentanasService,
+  claveDeJugador,
+  claveDeNota,
+  type TipoDeVentana,
+} from '../../core/services/ventanas.service';
 import { VentanaComponent } from '../../shared/ventana.component';
 import { PartyNotesService } from '../../core/services/party-notes.service';
 import { DadosPanelComponent } from './dados-panel.component';
 import { NotaPanelComponent } from './nota-panel.component';
+import { JugadorPanelComponent } from './jugador-panel.component';
 import { PjPanelComponent } from './pj-panel.component';
 import { PartyChatService } from '../../core/services/party-chat.service';
 import { PartyService, mensajeDeError } from '../../core/services/party.service';
+import { AuthService } from '../../core/services/auth.service';
+import { VozService } from '../../core/services/voz.service';
+import { TrackDirective } from '../../shared/track.directive';
 
 /**
  * La mesa: donde se juega.
@@ -21,7 +30,15 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
  */
 @Component({
   selector: 'app-mesa',
-  imports: [RouterLink, VentanaComponent, PjPanelComponent, DadosPanelComponent, NotaPanelComponent],
+  imports: [
+    RouterLink,
+    VentanaComponent,
+    PjPanelComponent,
+    DadosPanelComponent,
+    NotaPanelComponent,
+    JugadorPanelComponent,
+    TrackDirective,
+  ],
   template: `
     <div class="mesa">
       <!-- El chat vive fijo a la izquierda: es lo único que se mira siempre. -->
@@ -142,6 +159,23 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
           }
         }
 
+        <!--
+          Una ventana por jugador sentado. La lista sale de la presencia, no de
+          lo que vos abriste: si alguien cierra la pestaña, su ventana se va
+          sola sin que nadie la cierre.
+        -->
+        @for (j of jugadores(); track j.user_id) {
+          @if (ventanas.abierta(claveJugador(j.user_id))) {
+            <app-ventana
+              [tipo]="claveJugador(j.user_id)"
+              [titulo]="j.displayName"
+              (sacar)="sacarAfuera(claveJugador(j.user_id))"
+            >
+              <app-jugador-panel [jugador]="j" [cara]="voz.cara(j.user_id)" />
+            </app-ventana>
+          }
+        }
+
         @if (!hayAlgoAbierto()) {
           <p class="muted vacio-lienzo">Abrí lo que necesites con los botones de la derecha.</p>
         }
@@ -176,6 +210,68 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
           >
             <span class="icono">📄</span>
             <span class="rotulo">{{ (n.title || 'Nota').slice(0, 6) }}</span>
+          </button>
+        }
+
+        <!--
+          Los que están sentados ahora. El icono es su cara, no un glifo: en una
+          botonera de diez botones iguales, la cara es lo único que se distingue
+          de un vistazo. Cuando haya video, este mismo hueco muestra la cámara.
+        -->
+        <hr class="separador" />
+
+        <!--
+          Entrar al canal es explicito y nunca automatico: abrir la mesa no
+          puede prenderte el microfono. Se entra mudo y sin camara, y cada cosa
+          se prende aparte.
+        -->
+        @if (voz.estado() === 'adentro') {
+          <button class="boton" [class.on]="voz.micAbierto()" title="Microfono" (click)="voz.toggleMic()">
+            <span class="icono">{{ voz.micAbierto() ? '🎙️' : '🔇' }}</span>
+            <span class="rotulo">Mic</span>
+          </button>
+          <button class="boton" [class.on]="voz.camaraAbierta()" title="Camara" (click)="voz.toggleCamara()">
+            <span class="icono">{{ voz.camaraAbierta() ? '📹' : '🚫' }}</span>
+            <span class="rotulo">Cam</span>
+          </button>
+          <button class="boton salir-canal" title="Salir del canal" (click)="voz.salir()">
+            <span class="icono">📞</span><span class="rotulo">Salir</span>
+          </button>
+        } @else {
+          <button
+            class="boton"
+            [disabled]="voz.estado() === 'entrando'"
+            title="Entrar al canal de voz y video"
+            (click)="entrarAlCanal()"
+          >
+            <span class="icono">🎧</span>
+            <span class="rotulo">{{ voz.estado() === 'entrando' ? '…' : 'Voz' }}</span>
+          </button>
+        }
+
+        @if (jugadores().length) {
+          <hr class="separador" />
+        }
+        @for (j of jugadores(); track j.user_id) {
+          <button
+            class="boton"
+            [class.on]="ventanas.abierta(claveJugador(j.user_id))"
+            [title]="j.displayName + (j.characterName ? ' · ' + j.characterName : '')"
+            (click)="ventanas.alternar(claveJugador(j.user_id))"
+          >
+            <!--
+              Con la camara prendida el boton MUESTRA la camara. Es el mismo
+              track colgado dos veces: un MediaStream se puede poner en varios
+              <video> a la vez, no hace falta pedirlo de nuevo.
+            -->
+            @if (voz.cara(j.user_id)?.video; as track) {
+              <video class="icono cara" [appTrack]="track" autoplay playsinline [muted]="true"></video>
+            } @else if (j.avatar) {
+              <img class="icono cara" [src]="j.avatar" alt="" />
+            } @else {
+              <span class="icono">{{ inicialesDe(j.displayName) }}</span>
+            }
+            <span class="rotulo">{{ j.displayName.slice(0, 6) }}</span>
           </button>
         }
       </nav>
@@ -400,6 +496,23 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
       line-height: 1;
     }
 
+    /*
+      La cara del jugador ocupa el lugar del glifo, del mismo tamaño para que la
+      botonera no se deforme cuando alguien se sienta. Redonda para que se lea
+      como persona y no como otro botón mas.
+    */
+    .icono.cara {
+      width: 1.6rem;
+      height: 1.6rem;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+
+    /* Colgar es rojo: es la unica accion de la botonera que corta algo. */
+    .salir-canal:hover .icono {
+      color: var(--danger);
+    }
+
     .rotulo {
       font-size: 0.68rem;
     }
@@ -434,6 +547,7 @@ export class MesaComponent implements OnDestroy {
   readonly id = input.required<string>();
 
   readonly svc = inject(PartyService);
+  private readonly auth = inject(AuthService);
   readonly chat = inject(PartyChatService);
 
   readonly party = signal<Party | null>(null);
@@ -441,6 +555,45 @@ export class MesaComponent implements OnDestroy {
   readonly notas = inject(PartyNotesService);
 
   readonly clave = claveDeNota;
+  readonly claveJugador = claveDeJugador;
+  readonly voz = inject(VozService);
+
+  /**
+   * Entrar al canal necesita el token de invitacion, que es de donde sale el
+   * nombre de la sala. Solo lo ve quien ya esta en la mesa, asi que la sala no
+   * se puede adivinar desde afuera.
+   */
+  async entrarAlCanal() {
+    const p = this.party();
+    const yo = this.auth.userId();
+    if (!p || !yo) return;
+    await this.voz.entrar(p.id, p.invite_token, yo);
+    if (this.voz.error()) this.error.set(this.voz.error());
+  }
+
+  /** Todos los miembros de la mesa, con su nombre y su avatar. */
+  private readonly miembros = signal<PartyMemberView[]>([]);
+
+  /**
+   * Los que están sentados ahora.
+   *
+   * Tu propia cara NO va mientras estés fuera del canal: ya sabés cómo estás, y
+   * en una mesa de seis el lugar de la botonera es caro. Pero apenas entrás sí
+   * aparece, porque ahí empieza a decir algo que no sabés —cómo te ven, si
+   * quedaste encuadrado, si el micrófono tomó—, que es lo que hace cualquier
+   * app de video y por el mismo motivo.
+   *
+   * Se recalcula sobre `parties.online`, la presencia de Supabase Realtime que
+   * la sala ya venía usando.
+   */
+  readonly jugadores = computed(() => {
+    const yo = this.auth.userId();
+    const conectados = this.svc.online();
+    const meIncluyo = this.voz.estado() === 'adentro';
+    return this.miembros()
+      .filter((m) => (m.user_id === yo ? meIncluyo : conectados.has(m.user_id)))
+      .map((m) => ({ ...m, online: true, displayName: m.user_id === yo ? `${m.displayName} (vos)` : m.displayName }));
+  });
 
   /**
    * Las notas en el orden en que las usaste, la última primero.
@@ -457,7 +610,8 @@ export class MesaComponent implements OnDestroy {
     () =>
       this.ventanas.abierta('pj') ||
       this.ventanas.abierta('dados') ||
-      this.notas.lista().some((n) => this.ventanas.abierta(claveDeNota(n.id))),
+      this.notas.lista().some((n) => this.ventanas.abierta(claveDeNota(n.id))) ||
+      this.jugadores().some((j) => this.ventanas.abierta(claveDeJugador(j.user_id))),
   );
 
   /** Crear y abrir de una: nadie crea una nota para no escribirla. */
@@ -476,8 +630,8 @@ export class MesaComponent implements OnDestroy {
    * sincroniza por el servidor, igual que el chat.
    */
   sacarAfuera(tipo: TipoDeVentana) {
-    // La nota lleva su id como un segmento más: `ventana/nota/<id>`.
-    const ruta = tipo.startsWith('nota:') ? `nota/${tipo.slice(5)}` : tipo;
+    // La nota y el jugador llevan su id como un segmento más: `ventana/nota/<id>`.
+    const ruta = tipo.includes(':') ? tipo.replace(':', '/') : tipo;
     window.open(`/parties/${this.id()}/ventana/${ruta}`, `mesa-${tipo}`, 'width=760,height=680');
     this.ventanas.cerrar(tipo);
   }
@@ -501,6 +655,16 @@ export class MesaComponent implements OnDestroy {
       void this.chat.abrir(id).catch((e) => this.error.set(mensajeDeError(e)));
       void this.notas.abrir(id).catch((e) => this.error.set(mensajeDeError(e)));
       this.ventanas.usar(id);
+
+      /*
+       * La presencia ya existía para el puntito verde de la sala; acá es lo que
+       * hace aparecer y desaparecer las caras.
+       */
+      void this.svc.watchPresence(id).catch(() => undefined);
+      void this.svc
+        .members(id)
+        .then((ms) => this.miembros.set(ms))
+        .catch((e) => this.error.set(mensajeDeError(e)));
     });
 
     /*
@@ -519,6 +683,11 @@ export class MesaComponent implements OnDestroy {
   ngOnDestroy(): void {
     void this.chat.cerrar();
     void this.notas.cerrar();
+    // Si no se suelta, seguís figurando sentado después de irte de la mesa.
+    void this.svc.unwatchPresence();
+    // Y si no se sale del canal, la camara queda prendida y se siguen contando
+    // minutos con la mesa cerrada.
+    void this.voz.salir();
   }
 
   async enviar(evento: Event) {

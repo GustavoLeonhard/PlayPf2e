@@ -29,6 +29,8 @@ export interface PartyMember {
 /** Un miembro con lo que hace falta para mostrarlo: su nombre y el de su PJ. */
 export interface PartyMemberView extends PartyMember {
   displayName: string;
+  /** Data URL del avatar del perfil, o '' si no cargó ninguno. */
+  avatar: string;
   characterName: string | null;
   /** Conectado ahora mismo, según la presencia. No se persiste. */
   online: boolean;
@@ -37,6 +39,8 @@ export interface PartyMemberView extends PartyMember {
 export interface Profile {
   id: string;
   display_name: string;
+  /** Data URL, o '' si no cargó ninguno. Es público entre autenticados. */
+  avatar: string;
 }
 
 /**

@@ -63,3 +63,6 @@ desktop.ini
 .env
 .env.*
 !.env.example
+
+# Temporales del CLI de Supabase
+supabase/.temp/

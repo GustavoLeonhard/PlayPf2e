@@ -51,6 +51,14 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/mesa/ventana-suelta.component').then((m) => m.VentanaSueltaComponent),
   },
   {
+    // La cara de un jugador, sacada afuera. Mismo motivo que la nota: el
+    // segmento extra la tiene que resolver antes que la genérica.
+    path: 'parties/:id/ventana/jugador/:userId',
+    canActivate: [authGuard],
+    data: { tipo: 'jugador' },
+    loadComponent: () => import('./pages/mesa/ventana-suelta.component').then((m) => m.VentanaSueltaComponent),
+  },
+  {
     // Una ventana sacada afuera. Es la misma que vive en el lienzo, sola.
     path: 'parties/:id/ventana/:tipo',
     canActivate: [authGuard],
