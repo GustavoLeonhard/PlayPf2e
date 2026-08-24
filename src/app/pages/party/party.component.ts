@@ -127,12 +127,6 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
           }
         </section>
 
-        <section class="card proximamente">
-          <p class="muted small">
-            Acá van a vivir el chat, el tirador de dados y las notas. Por ahora, la mesa.
-          </p>
-        </section>
-
         <div class="salida">
           @if (soyGm()) {
             <button class="btn ghost danger" (click)="borrar()">Borrar la partida</button>
