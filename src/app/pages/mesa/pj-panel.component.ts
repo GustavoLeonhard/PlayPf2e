@@ -86,6 +86,20 @@ import { PartyService } from '../../core/services/party.service';
             <span class="muted small">CA</span>
             <strong>{{ s.ac.total }}</strong>
           </div>
+          <!--
+            La velocidad cierra el primer renglon: es un dato que se consulta
+            igual de seguido que la CA —cuantos pies me muevo— y no se tira.
+          -->
+          <div class="vital">
+            <span class="muted small">Velocidad</span>
+            <strong>{{ s.speed.total }}<small class="pies"> ft</small></strong>
+          </div>
+        </div>
+
+        <!--
+          Segundo renglon: las dos que se tiran al empezar un encuentro.
+        -->
+        <div class="vitales">
           <button class="vital tirable" (click)="tirar('Percepción', s.perception)">
             <span class="muted small">Percepción</span>
             <strong>{{ signo(s.perception.total) }}</strong>
@@ -634,7 +648,13 @@ import { PartyService } from '../../core/services/party.service';
       color: var(--muted);
       font: inherit;
       font-size: 0.7rem;
-      max-width: 5.5rem;
+      /*
+        Angosto: el nombre largo se corta con puntos suspensivos y se lee
+        entero al desplegarlo. Con 5.5rem, Percepcion e Iniciativa no entraban
+        juntas en el renglon cuando la columna se angosta.
+      */
+      max-width: 4rem;
+      text-overflow: ellipsis;
       cursor: pointer;
     }
 
@@ -880,7 +900,12 @@ import { PartyService } from '../../core/services/party.service';
       flex-direction: column;
       align-items: center;
       gap: 0.1rem;
-      padding: 0.3rem 0.6rem;
+      /*
+        Angostas a proposito: HP, CA y Velocidad tienen que entrar en un solo
+        renglon tambien cuando el bloque de atributos se pone al lado y le come
+        ancho a esta columna. Con 0.6rem de padding se partian justo ahi.
+      */
+      padding: 0.3rem 0.4rem;
       background: var(--surface-2);
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -897,7 +922,14 @@ import { PartyService } from '../../core/services/party.service';
     }
 
     .hp input {
-      width: 3.2rem;
+      width: 2.7rem;
+    }
+
+    /* La unidad no compite con el numero: es contexto, no dato. */
+    .pies {
+      font-size: 0.6em;
+      font-weight: 400;
+      color: var(--muted);
     }
 
     h4 {
