@@ -468,55 +468,6 @@
         </div>
       </app-accordion>
 
-      <!--
-        Todo lo que un rasgo te hace elegir. Hoy son las armas de ancestría (el
-        Clan Dagger de los enanos); es el lugar donde van a ir las que aparezcan
-        al subir de nivel, para no repartirlas por la hoja.
-      -->
-      @if (s.eleccionesDeRasgos.length) {
-        <app-accordion titulo="Elecciones de rasgos" [subtitulo]="eleccionesSubtitulo()">
-          <div class="elecciones-lista">
-            @for (eleccion of s.eleccionesDeRasgos; track eleccion.itemId + eleccion.tipo) {
-              <div class="eleccion-fila" [class.pendiente]="!eleccion.elegido">
-                <span class="eleccion-nombre">{{ eleccion.itemName }}</span>
-
-                <!--
-                  Pocas opciones entran como chips; muchas (las 16 habilidades)
-                  no, y ahí un desplegable se lee mejor que cuatro renglones.
-                -->
-                @if (eleccion.opciones.length <= 4) {
-                  <span class="opts">
-                    @for (op of eleccion.opciones; track op.valor) {
-                      <button
-                        class="chip"
-                        [class.on]="eleccion.elegido === op.valor"
-                        (click)="setFeatureChoice(eleccion, op)"
-                      >
-                        {{ op.etiqueta }}
-                      </button>
-                    }
-                  </span>
-                } @else {
-                  <select
-                    [value]="eleccion.elegido ?? ''"
-                    (change)="setFeatureChoicePorValor(eleccion, $any($event.target).value)"
-                  >
-                    <option value="">Elegí una…</option>
-                    @for (op of eleccion.opciones; track op.valor) {
-                      <option [value]="op.valor" [selected]="op.valor === eleccion.elegido">{{ op.etiqueta }}</option>
-                    }
-                  </select>
-                }
-
-                @if (eleccion.decididoPor; as dote) {
-                  <small class="muted">la decide {{ dote }}</small>
-                }
-              </div>
-            }
-          </div>
-        </app-accordion>
-      }
-
       <app-accordion titulo="Efectos" [subtitulo]="efectosSubtitulo()" class="efectos-tab">
         <div class="efectos-lista">
           @for (x of effectsEnLista(); track x.efecto.id) {
@@ -1025,6 +976,55 @@
             </div>
           </div>
         </div>
+      }
+
+      <!--
+        Todo lo que un rasgo te hace elegir. Hoy son las armas de ancestría (el
+        Clan Dagger de los enanos); es el lugar donde van a ir las que aparezcan
+        al subir de nivel, para no repartirlas por la hoja.
+      -->
+      @if (s.eleccionesDeRasgos.length) {
+        <app-accordion titulo="Elecciones de rasgos" [subtitulo]="eleccionesSubtitulo()">
+          <div class="elecciones-lista">
+            @for (eleccion of s.eleccionesDeRasgos; track eleccion.itemId + eleccion.tipo) {
+              <div class="eleccion-fila" [class.pendiente]="!eleccion.elegido">
+                <span class="eleccion-nombre">{{ eleccion.itemName }}</span>
+
+                <!--
+                  Pocas opciones entran como chips; muchas (las 16 habilidades)
+                  no, y ahí un desplegable se lee mejor que cuatro renglones.
+                -->
+                @if (eleccion.opciones.length <= 4) {
+                  <span class="opts">
+                    @for (op of eleccion.opciones; track op.valor) {
+                      <button
+                        class="chip"
+                        [class.on]="eleccion.elegido === op.valor"
+                        (click)="setFeatureChoice(eleccion, op)"
+                      >
+                        {{ op.etiqueta }}
+                      </button>
+                    }
+                  </span>
+                } @else {
+                  <select
+                    [value]="eleccion.elegido ?? ''"
+                    (change)="setFeatureChoicePorValor(eleccion, $any($event.target).value)"
+                  >
+                    <option value="">Elegí una…</option>
+                    @for (op of eleccion.opciones; track op.valor) {
+                      <option [value]="op.valor" [selected]="op.valor === eleccion.elegido">{{ op.etiqueta }}</option>
+                    }
+                  </select>
+                }
+
+                @if (eleccion.decididoPor; as dote) {
+                  <small class="muted">la decide {{ dote }}</small>
+                }
+              </div>
+            }
+          </div>
+        </app-accordion>
       }
 
       <!--
