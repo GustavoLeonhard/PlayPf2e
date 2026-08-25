@@ -20,6 +20,17 @@ import { COMMON_LANGUAGES, UNCOMMON_LANGUAGES, languageLabel } from '../../core/
 import { datosDeConjuro, datosDeDote, datosDeEfecto, datosDeEquipo, type Dato } from '../../core/rules/fichas';
 import { recorteCuadrado } from '../../core/rules/imagen';
 import { formatCp, priceToCp, splitCp } from '../../core/rules/money';
+import {
+  alternarCondicion,
+  alternarEfecto,
+  alternarEquipado,
+  aplicarPuenteDeEfecto,
+  cambiarCantidad,
+  cambiarValorDeCondicion,
+  conMoneda,
+  escudoCon,
+  quitarDelInventario,
+} from '../../core/rules/estado';
 import { castableRanks, scaledDamage } from '../../core/rules/spellcasting';
 import { SKILLS } from '../../core/rules/tables';
 import { computeCharacter, slug, type ContentIndex, type FeatSource, type StrikeSheet } from '../../core/rules/character.engine';
@@ -27,7 +38,6 @@ import { buscar, coincidePorTexto } from '../../core/rules/buscar';
 import { avisosDe, esAplicable, nombreCorto, selectoresDe, valorDe, type Effect } from '../../core/rules/efectos';
 import type { EleccionDeRasgo, OpcionDeEleccion } from '../../core/rules/elecciones';
 import { efectoAMano, seCalcula } from '../../core/rules/efectos-a-mano';
-import { RAGE_SLUG, rageSheet } from '../../core/rules/rabia';
 import { signed, type Stat } from '../../core/rules/modifiers';
 import {
   HABILIDADES_CON_MAP,
@@ -213,7 +223,7 @@ export class SheetComponent implements OnInit {
       record.state.preparedSpells ??= {};
       record.state.coins ??= 0;
       record.state.spellSlotsUsed ??= {};
-      record.state.shield ??= { raised: false, hp: 0 };
+      record.state.shield ??= { raised: false };
       record.state.effects ??= [];
       record.build.languages ??= [];
       record.build.favorites ??= [];
@@ -1589,10 +1599,7 @@ export class SheetComponent implements OnInit {
     const escudo = this.sheet()?.shield;
     if (!record || !escudo) return;
 
-    record.state.shield = {
-      raised: !escudo.raised,
-      hp: record.state.shield?.hp ?? escudo.maxHp,
-    };
+    record.state.shield = escudoCon(record.state.shield, { raised: !escudo.raised }, escudo.maxHp);
     await this.guardar(record);
   }
 
@@ -1610,10 +1617,11 @@ export class SheetComponent implements OnInit {
     const absorbed = Math.min(incoming, escudo.hardness);
     const resto = incoming - absorbed;
 
-    record.state.shield = {
-      raised: escudo.raised,
-      hp: Math.max(0, (record.state.shield?.hp ?? escudo.maxHp) - resto),
-    };
+    record.state.shield = escudoCon(
+      record.state.shield,
+      { hp: (record.state.shield?.hp ?? escudo.maxHp) - resto },
+      escudo.maxHp,
+    );
     record.state.hp.current = Math.max(0, record.state.hp.current - resto);
 
     this.lastBlock.set({ incoming, absorbed, toYou: resto, toShield: resto });
@@ -1624,7 +1632,7 @@ export class SheetComponent implements OnInit {
     const record = this.record();
     const escudo = this.sheet()?.shield;
     if (!record || !escudo) return;
-    record.state.shield = { raised: escudo.raised, hp: escudo.maxHp };
+    record.state.shield = escudoCon(record.state.shield, { hp: escudo.maxHp }, escudo.maxHp);
     this.lastBlock.set(null);
     await this.guardar(record);
   }
@@ -1840,8 +1848,7 @@ export class SheetComponent implements OnInit {
   async setQuantity(index: number, valor: string) {
     const record = this.record();
     if (!record) return;
-    const cantidad = Math.max(1, Math.round(Number(valor) || 1));
-    record.build.inventory = record.build.inventory.map((it, i) => (i === index ? { ...it, quantity: cantidad } : it));
+    record.build.inventory = cambiarCantidad(record.build.inventory, index, Number(valor));
     await this.guardar(record);
   }
 
@@ -1861,16 +1868,14 @@ export class SheetComponent implements OnInit {
   async removeItem(index: number) {
     const record = this.record();
     if (!record) return;
-    record.build.inventory = record.build.inventory.filter((_, i) => i !== index);
+    record.build.inventory = quitarDelInventario(record.build.inventory, index);
     await this.guardar(record);
   }
 
   async toggleEquipped(index: number) {
     const record = this.record();
     if (!record) return;
-    record.build.inventory = record.build.inventory.map((it, i) =>
-      i === index ? { ...it, equipped: !it.equipped } : it,
-    );
+    record.build.inventory = alternarEquipado(record.build.inventory, index);
     await this.guardar(record);
   }
 
@@ -2114,8 +2119,7 @@ export class SheetComponent implements OnInit {
     const record = this.record();
     if (!record) return;
 
-    const cantidad = Math.max(0, Math.round(Number(valor) || 0));
-    const bolsa = { ...this.purse(), [moneda]: cantidad };
+    const bolsa = conMoneda(this.purse(), moneda, Number(valor));
     record.state.purse = bolsa;
     record.state.coins = priceToCp(bolsa);
     await this.guardar(record);
@@ -2220,9 +2224,7 @@ export class SheetComponent implements OnInit {
     if (!record) return;
 
     const prendiendo = !this.estaActivo(id);
-    record.state.effects = (record.state.effects ?? []).map((e) =>
-      e.id === id ? { ...e, active: prendiendo } : e,
-    );
+    record.state.effects = alternarEfecto(record.state.effects, id);
     await this.aplicarEfecto(record, id, prendiendo);
   }
 
@@ -2236,16 +2238,11 @@ export class SheetComponent implements OnInit {
    */
   private async aplicarEfecto(record: CharacterRecord, id: string, prendido: boolean) {
     const slug = this.effectList().find((e) => e.id === id)?.slug ?? '';
-
-    if (efectoAMano(slug)?.puente === 'shield') {
-      // Los PJ guardados antes de que existiera el escudo no traen ese estado.
-      record.state.shield = { ...(record.state.shield ?? { hp: 0 }), raised: prendido };
-    }
-
-    if (slug === RAGE_SLUG) {
-      const furia = this.sheet()?.rage;
-      record.state.hp.temp = prendido ? (furia?.tempHp ?? rageSheet(this.nivel(), this.conMod()).tempHp) : 0;
-    }
+    aplicarPuenteDeEfecto(record.state, slug, prendido, {
+      nivel: this.nivel(),
+      modCon: this.conMod(),
+      tempHpDeFuria: this.sheet()?.rage?.tempHp,
+    });
 
     this.record.set({ ...record });
     await this.characters.save(record);
@@ -2263,9 +2260,7 @@ export class SheetComponent implements OnInit {
   async toggleCondition(id: string, valued: boolean) {
     const record = this.record();
     if (!record) return;
-    const at = record.state.conditions.findIndex((c) => c.id === id);
-    if (at >= 0) record.state.conditions.splice(at, 1);
-    else record.state.conditions.push(valued ? { id, value: 1 } : { id });
+    record.state.conditions = alternarCondicion(record.state.conditions, id, valued);
     this.record.set({ ...record });
     await this.characters.save(record);
   }
@@ -2273,11 +2268,7 @@ export class SheetComponent implements OnInit {
   async changeConditionValue(id: string, delta: number) {
     const record = this.record();
     if (!record) return;
-    const condition = record.state.conditions.find((c) => c.id === id);
-    if (!condition) return;
-    const next = (condition.value ?? 1) + delta;
-    if (next <= 0) record.state.conditions = record.state.conditions.filter((c) => c.id !== id);
-    else condition.value = next;
+    record.state.conditions = cambiarValorDeCondicion(record.state.conditions, id, delta);
     this.record.set({ ...record });
     await this.characters.save(record);
   }
