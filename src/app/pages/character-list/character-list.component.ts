@@ -159,7 +159,7 @@ import { PartyService } from '../../core/services/party.service';
     .backdrop {
       position: fixed;
       inset: 0;
-      background: #000a;
+      background: var(--sombra);
       display: flex;
       align-items: center;
       justify-content: center;

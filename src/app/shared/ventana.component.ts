@@ -49,7 +49,7 @@ import { VentanasService, type TipoDeVentana } from '../core/services/ventanas.s
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      box-shadow: 0 6px 24px rgb(0 0 0 / 45%);
+      box-shadow: 0 6px 24px var(--sombra);
       overflow: hidden;
     }
 

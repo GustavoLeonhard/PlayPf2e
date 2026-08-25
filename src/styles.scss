@@ -11,6 +11,18 @@
   --accent-strong: #e0bd72;
   --danger: #b5544a;
   --ok: #6a9a5b;
+
+  /*
+   * Texto ENCIMA del acento. Es su propio token y no un `--text` oscurecido a
+   * ojo: si alguien pinta el acento de un color claro, un texto fijo oscuro se
+   * vuelve ilegible y no hay forma de arreglarlo sin tocar componentes.
+   */
+  --sobre-acento: #221b10;
+  /** El favorito. Va aparte del acento: es una marca, no una acción. */
+  --favorito: #ffcc55;
+  /** Sombra de lo que flota. En un tema claro esto baja mucho de opacidad. */
+  --sombra: #000a;
+
   --radius: 10px;
 }
 
