@@ -269,6 +269,71 @@ pf2e-builder/
 - **Agregar algo a la hoja** → decidí primero si es `build` o `state`. Es la decisión que después no se
   puede deshacer barato.
 
+### 11. Cambiar el front (o reemplazarlo)
+
+Hay dos cosas distintas acá, y conviene no mezclarlas.
+
+#### Re-pintar: cambiar colores y proporciones
+
+**Todo el color sale de tokens.** Hoy son 341 usos de `var(--…)` y **cero** colores
+escritos a mano en componentes. Cambiando el bloque `:root` de
+[`src/styles.scss`](src/styles.scss) se repinta la aplicación entera:
+
+| Token | Qué es |
+|---|---|
+| `--bg` · `--surface` · `--surface-2` | Fondo, tarjetas, y el fondo de lo hundido |
+| `--border` | Todos los marcos |
+| `--text` · `--muted` | Texto normal y secundario |
+| `--accent` · `--accent-strong` | Lo destacado y su estado activo |
+| `--sobre-acento` | Texto **encima** del acento |
+| `--danger` · `--ok` | Error y confirmación |
+| `--favorito` | La estrella de favorito |
+| `--sombra` | Sombra de lo que flota |
+| `--radius` | Redondeo |
+
+`--sobre-acento` y `--sombra` existen por un motivo concreto: si pintás el acento
+de un color claro, un texto oscuro fijo encima queda ilegible, y una sombra negra
+al 67% arruina un tema claro. Los dos eran hex fijos hasta que se tokenizaron.
+
+**El tamaño general** lo manda una sola línea: el `font-size` de `body` en
+`styles.scss`. Casi todo lo demás está en `rem`, así que ese número escala la app
+completa.
+
+Lo que **todavía no** es tema: tipografía y espaciado no tienen escala propia. La
+familia tipográfica está en `body` y los espaciados son `rem` sueltos en cada
+componente. Cambiar la fuente es una línea; cambiar el ritmo vertical, no.
+
+#### Reemplazar el front entero
+
+Acá está la buena noticia, y es de diseño, no de suerte:
+
+| Capa | Líneas | ¿Sirve en otro framework? |
+|---|---:|---|
+| `core/rules/` | 6.956 | **Sí, tal cual.** Cero imports de Angular |
+| `core/models/` | 732 | **Sí, tal cual.** Solo tipos |
+| `core/services/` | 1.627 | No: usan `inject` y `signal`. Son finos (HTTP y Supabase) |
+| `pages/` + `shared/` | 7.590 | No: son los componentes |
+
+O sea que **el motor de reglas de PF2e —el trabajo difícil— ya es portable**.
+`computeCharacter(build, state, content)` es una función pura sin dependencias:
+se copia a un proyecto React, Vue o Svelte y anda. Lo mismo el dado, los
+prerrequisitos, las runas y los efectos.
+
+Lo que habría que reescribir son los servicios (finos) y los componentes, que es
+justamente lo que un fork que quiere otro front va a reescribir igual.
+
+#### Dónde está el HTML y el CSS
+
+De los 20 componentes, **3 tienen plantilla y estilos en archivos aparte**
+—`sheet`, `wizard` y `level-up`, que son los grandes— y **17 los llevan adentro
+del `.ts`**, que son los chicos (los paneles de la mesa y los widgets
+compartidos).
+
+No está separado por vagancia: en un componente de 60 líneas, partirlo en tres
+archivos hace más difícil leerlo, no más fácil. Si vas a reescribir el front, la
+plantilla la vas a tirar igual; si vas a re-pintar, los tokens alcanzan sin abrir
+un solo `.ts`.
+
 ## Dos decisiones que explican todo lo demás
 
 **1. El personaje se guarda como lista de elecciones, no como hoja calculada.**
