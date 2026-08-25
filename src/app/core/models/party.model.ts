@@ -117,3 +117,13 @@ export interface PartyNote {
   created_at: string;
   updated_at: string;
 }
+
+/** Un fondo compartido de la mesa; el archivo vive en Storage, no en la fila. */
+export interface PartyScene {
+  id: string;
+  party_id: string;
+  author_id: string;
+  title: string;
+  storage_path: string;
+  created_at: string;
+}

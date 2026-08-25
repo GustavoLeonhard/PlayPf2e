@@ -443,7 +443,16 @@ import { PartyService } from '../../core/services/party.service';
     }
 
     .hp input {
-      width: 3.2rem;
+      /* El control numérico reserva espacio para sus flechas: con 3.2rem el
+         segundo dígito de HP podía quedar tapado al achicar la ventana. */
+      width: 4.2rem;
+      min-width: 4.2rem;
+    }
+
+    .hp {
+      display: flex;
+      align-items: center;
+      white-space: nowrap;
     }
 
     h4 {

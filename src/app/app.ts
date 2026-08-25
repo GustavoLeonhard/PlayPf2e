@@ -1,9 +1,11 @@
-import { Component, effect, inject } from '@angular/core';
+import { Component, effect, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { iniciales } from './core/rules/imagen';
 import { AuthService } from './core/services/auth.service';
 import { ProfileService } from './core/services/profile.service';
+
+type Tema = 'dark' | 'medium' | 'light';
 
 @Component({
   selector: 'app-root',
@@ -39,6 +41,12 @@ import { ProfileService } from './core/services/profile.service';
             }
             <span class="muted email">{{ perfil.nombre() }}</span>
           </a>
+          <button
+            class="icono tema"
+            [title]="'Usar tema ' + nombreTemaSiguiente()"
+            [attr.aria-label]="'Usar tema ' + nombreTemaSiguiente()"
+            (click)="cambiarTema()"
+          >{{ simboloTema() }}</button>
           <button class="icono" title="Salir" aria-label="Salir" (click)="logout()">⏻</button>
         </div>
       }
@@ -128,6 +136,10 @@ import { ProfileService } from './core/services/profile.service';
       color: var(--danger);
     }
 
+    .icono.tema:hover {
+      color: var(--accent-strong);
+    }
+
     @media (max-width: 560px) {
       .email {
         display: none;
@@ -141,13 +153,49 @@ export class App {
   private router = inject(Router);
 
   readonly iniciales = iniciales;
+  readonly tema = signal<Tema>(this.temaInicial());
 
   constructor() {
+    this.aplicarTema(this.tema());
     // El perfil se carga cuando aparece la sesión: al arrancar todavía no hay
     // userId (la restauración de Supabase es asíncrona).
     effect(() => {
       if (this.auth.isLoggedIn()) void this.perfil.cargar();
     });
+  }
+
+  cambiarTema() {
+    const nuevo: Tema = this.tema() === 'dark' ? 'medium' : this.tema() === 'medium' ? 'light' : 'dark';
+    this.tema.set(nuevo);
+    this.aplicarTema(nuevo);
+  }
+
+  nombreTemaSiguiente() {
+    return this.tema() === 'dark' ? 'intermedio' : this.tema() === 'medium' ? 'claro' : 'oscuro';
+  }
+
+  simboloTema() {
+    return this.tema() === 'dark' ? '☾' : this.tema() === 'medium' ? '◐' : '☀';
+  }
+
+  private temaInicial(): Tema {
+    try {
+      const guardado = localStorage.getItem('playpf2e:tema');
+      return guardado === 'light' || guardado === 'medium' ? guardado : 'dark';
+    } catch {
+      return 'dark';
+    }
+  }
+
+  private aplicarTema(tema: Tema) {
+    document.documentElement.classList.toggle('dark', tema === 'dark');
+    document.documentElement.classList.toggle('medium', tema === 'medium');
+    document.documentElement.classList.toggle('light', tema === 'light');
+    try {
+      localStorage.setItem('playpf2e:tema', tema);
+    } catch {
+      // En modo privado el tema dura hasta cerrar la pestaña.
+    }
   }
 
   async logout() {
