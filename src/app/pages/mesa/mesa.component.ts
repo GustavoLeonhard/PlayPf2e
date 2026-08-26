@@ -12,6 +12,7 @@ import {
 import { VentanaComponent } from '../../shared/ventana.component';
 import { PartyNotesService } from '../../core/services/party-notes.service';
 import { DadosPanelComponent } from './dados-panel.component';
+import { AmbientePanelComponent } from './ambiente-panel.component';
 import { NotaPanelComponent } from './nota-panel.component';
 import { JugadorPanelComponent } from './jugador-panel.component';
 import { PjPanelComponent } from './pj-panel.component';
@@ -36,6 +37,7 @@ import { TrackDirective } from '../../shared/track.directive';
     VentanaComponent,
     PjPanelComponent,
     DadosPanelComponent,
+    AmbientePanelComponent,
     NotaPanelComponent,
     JugadorPanelComponent,
     TrackDirective,
@@ -157,6 +159,9 @@ import { TrackDirective } from '../../shared/track.directive';
             <app-dados-panel [partyId]="id()" />
           </app-ventana>
         }
+        @if (ventanas.abierta('ambiente')) {
+          <app-ventana tipo="ambiente" titulo="Ambiente" (sacar)="sacarAfuera('ambiente')"><app-ambiente-panel [partyId]="id()" /></app-ventana>
+        }
 
         @for (n of notasOrdenadas(); track n.id) {
           @if (ventanas.abierta(clave(n.id))) {
@@ -224,6 +229,9 @@ import { TrackDirective } from '../../shared/track.directive';
         </button>
         <button class="boton" [class.on]="ventanas.abierta('dados')" (click)="ventanas.alternar('dados')">
           <span class="icono">🎲</span><span class="rotulo">Dados</span>
+        </button>
+        <button class="boton" [class.on]="ventanas.abierta('ambiente')" (click)="ventanas.alternar('ambiente')">
+          <span class="icono">🎵</span><span class="rotulo">Ambiente</span>
         </button>
 
         <button class="boton" title="Crear una nota" (click)="nuevaNota()">
@@ -653,6 +661,7 @@ export class MesaComponent implements OnDestroy {
     () =>
       this.ventanas.abierta('pj') ||
       this.ventanas.abierta('dados') ||
+      this.ventanas.abierta('ambiente') ||
       this.notas.lista().some((n) => this.ventanas.abierta(claveDeNota(n.id))) ||
       this.jugadores().some((j) => this.ventanas.abierta(claveDeJugador(j.user_id))),
   );
