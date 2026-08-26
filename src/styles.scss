@@ -26,22 +26,6 @@
   --radius: 10px;
 }
 
-/* Tema claro: los mismos tokens permiten que cada panel conserve contraste. */
-:root.light {
-  --bg: #f3eee6;
-  --surface: #fffdf9;
-  --surface-2: #f2ece3;
-  --border: #cfc2b4;
-  --text: #302820;
-  --muted: #74685d;
-  --accent: #9a7427;
-  --accent-strong: #684b10;
-  --danger: #a33f37;
-  --ok: #487c4e;
-  --sobre-acento: #fffdf9;
-  --sombra: #4a38221f;
-}
-
 /* Gris neutro, entre el pergamino oscuro y el claro; recuerda al editor. */
 :root.medium {
   --bg: #30343b;

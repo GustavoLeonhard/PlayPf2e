@@ -432,3 +432,13 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 create policy "audio: leer los de mi mesa" on storage.objects for select to authenticated using (bucket_id = 'party-audio' and public.is_party_member((storage.foldername(name))[1]::uuid));
 create policy "audio: subir el gm" on storage.objects for insert to authenticated with check (bucket_id = 'party-audio' and owner_id = auth.uid()::text and public.is_party_gm((storage.foldername(name))[1]::uuid));
 create policy "audio: borrar el gm" on storage.objects for delete to authenticated using (bucket_id = 'party-audio' and public.is_party_gm((storage.foldername(name))[1]::uuid));
+
+-- Al borrar una partida, sus archivos de Storage no quedan huérfanos.
+create or replace function public.delete_party_storage_files()
+returns trigger language plpgsql security definer set search_path = public, storage as $$
+begin
+  delete from storage.objects where bucket_id in ('party-scenes', 'party-audio') and name like old.id::text || '/%';
+  return old;
+end $$;
+drop trigger if exists parties_delete_storage_files on public.parties;
+create trigger parties_delete_storage_files before delete on public.parties for each row execute function public.delete_party_storage_files();

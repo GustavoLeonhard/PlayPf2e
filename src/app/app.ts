@@ -5,7 +5,7 @@ import { iniciales } from './core/rules/imagen';
 import { AuthService } from './core/services/auth.service';
 import { ProfileService } from './core/services/profile.service';
 
-type Tema = 'dark' | 'medium' | 'light';
+type Tema = 'dark' | 'medium';
 
 @Component({
   selector: 'app-root',
@@ -165,23 +165,23 @@ export class App {
   }
 
   cambiarTema() {
-    const nuevo: Tema = this.tema() === 'dark' ? 'medium' : this.tema() === 'medium' ? 'light' : 'dark';
+    const nuevo: Tema = this.tema() === 'dark' ? 'medium' : 'dark';
     this.tema.set(nuevo);
     this.aplicarTema(nuevo);
   }
 
   nombreTemaSiguiente() {
-    return this.tema() === 'dark' ? 'intermedio' : this.tema() === 'medium' ? 'claro' : 'oscuro';
+    return this.tema() === 'dark' ? 'intermedio' : 'oscuro';
   }
 
   simboloTema() {
-    return this.tema() === 'dark' ? '☾' : this.tema() === 'medium' ? '◐' : '☀';
+    return this.tema() === 'dark' ? '☾' : '◐';
   }
 
   private temaInicial(): Tema {
     try {
       const guardado = localStorage.getItem('playpf2e:tema');
-      return guardado === 'light' || guardado === 'medium' ? guardado : 'dark';
+      return guardado === 'medium' ? 'medium' : 'dark';
     } catch {
       return 'dark';
     }
@@ -190,7 +190,6 @@ export class App {
   private aplicarTema(tema: Tema) {
     document.documentElement.classList.toggle('dark', tema === 'dark');
     document.documentElement.classList.toggle('medium', tema === 'medium');
-    document.documentElement.classList.toggle('light', tema === 'light');
     try {
       localStorage.setItem('playpf2e:tema', tema);
     } catch {
