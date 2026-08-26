@@ -54,9 +54,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  /* Casi todo el resto está en rem, así que este número manda en toda la app.
-     La mesa necesita dejar aire para el mapa, fondos y ventanas flotantes. */
-  font-size: 18px;
+  /* Casi todo el resto está en rem, así que este número manda en toda la app. */
+  font-size: 22px;
   line-height: 1.5;
 }
 

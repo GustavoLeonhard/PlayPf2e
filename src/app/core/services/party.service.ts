@@ -1,7 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-import type { Party, PartyMember, PartyMemberView, Profile } from '../models/party.model';
+import type { Party, PartyMember, PartyMemberView, PartyRow, Profile } from '../models/party.model';
 import { AuthService } from './auth.service';
 
 /**
@@ -36,7 +36,7 @@ export function mensajeDeError(e: unknown): string {
 export class PartyService {
   private auth = inject(AuthService);
 
-  readonly parties = signal<Party[]>([]);
+  readonly parties = signal<PartyRow[]>([]);
   readonly loading = signal(false);
 
   /** Quién está conectado a la partida abierta, por id de usuario. */
@@ -53,17 +53,75 @@ export class PartyService {
     return !!this.auth.client;
   }
 
-  async list(): Promise<Party[]> {
+  /**
+   * Las partidas del listado: las que dirigís y las que jugás.
+   *
+   * El filtro está escrito acá ADEMÁS de en la RLS, y no por desconfianza: la
+   * política es la que manda y la que protege, pero leyendo este método sin
+   * abrir el SQL no había forma de saber qué se está listando. Si algún día una
+   * política se afloja, además, el listado no se llena de mesas ajenas.
+   *
+   * Que una partida no esté acá NO impide entrar con el link de invitación: eso
+   * lo resuelve `join`, y es a propósito — te invitan a una mesa que todavía no
+   * es tuya.
+   */
+  async list(): Promise<PartyRow[]> {
     this.loading.set(true);
     try {
-      const { data, error } = await this.client
-        .from('parties')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      const rows = (data ?? []) as Party[];
-      this.parties.set(rows);
-      return rows;
+      const yo = this.auth.userId();
+
+      const [partidas, membresias] = await Promise.all([
+        this.client.from('parties').select('*').order('created_at', { ascending: false }),
+        this.client
+          .from('party_members')
+          .select('party_id, characters:character_id (name, level, build)')
+          .eq('user_id', yo),
+      ]);
+      if (partidas.error) throw partidas.error;
+
+      // PostgREST tipa el embed como arreglo aunque en runtime sea un objeto.
+      type PjEmbed = {
+        name: string;
+        level: number;
+        build: {
+          ancestry: string | null;
+          heritage: string | null;
+          class: string | null;
+          portrait?: string | null;
+        } | null;
+      };
+      type Membresia = { party_id: string; characters: PjEmbed | PjEmbed[] | null };
+      const miPj = new Map<string, PjEmbed | null>();
+      for (const m of (membresias.data ?? []) as unknown as Membresia[]) {
+        const pj = Array.isArray(m.characters) ? m.characters[0] : m.characters;
+        miPj.set(m.party_id, pj ?? null);
+      }
+
+      const propias = ((partidas.data ?? []) as Party[]).filter(
+        (p) => p.gm_id === yo || miPj.has(p.id),
+      );
+
+      const perfiles = await this.perfiles(propias.map((p) => p.gm_id));
+
+      const filas: PartyRow[] = propias.map((p) => {
+        const soyGm = p.gm_id === yo;
+        // El máster no juega con un PJ: preguntarlo no tendría sentido.
+        const pj = soyGm ? null : miPj.get(p.id);
+        return {
+          ...p,
+          soyGm,
+          gmName: soyGm ? 'Vos' : (perfiles.get(p.gm_id)?.display_name || 'Sin nombre'),
+          characterName: pj?.name ?? null,
+          characterLevel: pj?.level ?? null,
+          characterAncestry: pj?.build?.ancestry ?? null,
+          characterHeritage: pj?.build?.heritage ?? null,
+          characterClass: pj?.build?.class ?? null,
+          characterPortrait: pj?.build?.portrait ?? '',
+        };
+      });
+
+      this.parties.set(filas);
+      return filas;
     } finally {
       this.loading.set(false);
     }

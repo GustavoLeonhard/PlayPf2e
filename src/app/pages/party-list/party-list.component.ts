@@ -1,13 +1,14 @@
+import { TitleCasePipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
-import type { Party } from '../../core/models/party.model';
-import { AuthService } from '../../core/services/auth.service';
+import type { Party, PartyRow } from '../../core/models/party.model';
+import { ContentService } from '../../core/services/content.service';
 import { PartyService, mensajeDeError } from '../../core/services/party.service';
 
 @Component({
   selector: 'app-party-list',
-  imports: [RouterLink],
+  imports: [RouterLink, TitleCasePipe],
   template: `
     <div class="container">
       <div class="head">
@@ -61,11 +62,43 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
             </p>
           </div>
         } @else {
-          <div class="grid">
+          <!--
+            Una fila grande por partida, como en la lista de personajes: se lee
+            el rol, la mesa y con qué PJ jugás de un vistazo, sin encabezados.
+          -->
+          <div class="lista">
             @for (p of svc.parties(); track p.id) {
-              <a class="card partida" [routerLink]="['/parties', p.id]">
-                <h2>{{ p.name }}</h2>
-                <span class="rol" [class.gm]="esGm(p)">{{ esGm(p) ? 'Dirigís esta mesa' : 'Jugás en esta mesa' }}</span>
+              <a class="card fila" [routerLink]="['/parties', p.id]">
+                @if (p.characterPortrait; as foto) {
+                  <img class="portrait" [src]="foto" [alt]="p.characterName ?? ''" />
+                }
+
+                <div class="datos">
+                  <h2>{{ p.name }}</h2>
+                  <!--
+                    Máster y personaje son excluyentes: el que dirige no lleva PJ.
+                    Se dice con palabras en vez de dejar la línea vacía, que se
+                    leería como un dato que falta.
+                  -->
+                  @if (p.soyGm) {
+                    <p class="muted">Sos el máster de esta mesa</p>
+                  } @else if (p.characterName) {
+                    <!-- Mismo formato que en la lista de personajes: se leen igual. -->
+                    <p class="muted">
+                      <span class="pj">{{ p.characterName }}</span> ·
+                      {{ p.characterAncestry | titlecase }}
+                      @if (herencia(p); as h) {
+                        ({{ h }})
+                      }
+                      · {{ p.characterClass | titlecase }} ·
+                      <span class="level">Nivel {{ p.characterLevel }}</span>
+                    </p>
+                  } @else {
+                    <p class="muted">Máster: {{ p.gmName }} · todavía sin personaje</p>
+                  }
+                </div>
+
+                <span class="rol" [class.gm]="p.soyGm">{{ p.soyGm ? 'Dirigís' : 'Jugás' }}</span>
               </a>
             }
           </div>
@@ -82,24 +115,72 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
       margin-bottom: 1rem;
     }
 
-    .grid {
-      display: grid;
-      gap: 0.8rem;
-      grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    /* Cada partida ocupa la fila entera: se leen en vertical de un vistazo. */
+    .lista {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
     }
 
-    .partida {
+    .fila {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
       color: inherit;
       text-decoration: none;
-      display: block;
+      transition: border-color 0.15s;
     }
 
+    .fila:hover {
+      border-color: var(--accent);
+    }
+
+    /* Mismo retrato que en la lista de personajes. */
+    .portrait {
+      width: 56px;
+      height: 56px;
+      border-radius: 10px;
+      object-fit: cover;
+      flex: 0 0 auto;
+    }
+
+    /* Si dirigís o jugás se dice con una etiqueta propia, no con el color del nombre. */
     .rol {
-      font-size: 0.85rem;
+      flex: 0 0 auto;
+      margin-left: auto;
+      padding: 0.3rem 0.7rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
       color: var(--muted);
     }
 
     .rol.gm {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .datos {
+      flex: 1 1 14rem;
+      min-width: 0;
+    }
+
+    .datos h2 {
+      margin: 0;
+    }
+
+    .datos p {
+      margin: 0.15rem 0 0;
+    }
+
+    .pj {
+      color: var(--text);
+    }
+
+    .level {
       color: var(--accent);
     }
 
@@ -128,12 +209,18 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
 })
 export class PartyListComponent {
   readonly svc = inject(PartyService);
-  private auth = inject(AuthService);
+  private content = inject(ContentService);
   private router = inject(Router);
 
   readonly creando = signal(false);
   readonly guardando = signal(false);
   readonly error = signal<string | null>(null);
+
+  /**
+   * id de herencia -> nombre. La herencia se guarda por id opaco, no por slug
+   * como la ascendencia y la clase: sin esto la fila mostraba el id crudo.
+   */
+  private readonly herencias = signal<Map<string, string>>(new Map());
 
   constructor() {
     if (this.svc.disponible) void this.cargar();
@@ -145,9 +232,20 @@ export class PartyListComponent {
     } catch (e) {
       this.error.set(mensajeDeError(e));
     }
+
+    try {
+      const hs = await this.content.heritages();
+      this.herencias.set(new Map(hs.map((h) => [h.id, h.name])));
+    } catch {
+      // Sin el dataset la fila se lee igual, solo sin el paréntesis.
+    }
   }
 
-  esGm = (p: Party) => p.gm_id === this.auth.userId();
+  /** El nombre de la herencia, o null si todavía no cargó o el id no existe. */
+  herencia(p: PartyRow): string | null {
+    return p.characterHeritage ? (this.herencias().get(p.characterHeritage) ?? null) : null;
+  }
+
 
   async crear(nombre: string) {
     if (this.guardando()) return;

@@ -1,4 +1,4 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, effect, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { iniciales } from './core/rules/imagen';
@@ -41,12 +41,6 @@ type Tema = 'dark' | 'medium';
             }
             <span class="muted email">{{ perfil.nombre() }}</span>
           </a>
-          <button
-            class="icono tema"
-            [title]="'Usar tema ' + nombreTemaSiguiente()"
-            [attr.aria-label]="'Usar tema ' + nombreTemaSiguiente()"
-            (click)="cambiarTema()"
-          >{{ simboloTema() }}</button>
           <button class="icono" title="Salir" aria-label="Salir" (click)="logout()">⏻</button>
         </div>
       }
@@ -136,10 +130,6 @@ type Tema = 'dark' | 'medium';
       color: var(--danger);
     }
 
-    .icono.tema:hover {
-      color: var(--accent-strong);
-    }
-
     @media (max-width: 560px) {
       .email {
         display: none;
@@ -153,10 +143,8 @@ export class App {
   private router = inject(Router);
 
   readonly iniciales = iniciales;
-  readonly tema = signal<Tema>(this.temaInicial());
 
   constructor() {
-    this.aplicarTema(this.tema());
     // El perfil se carga cuando aparece la sesión: al arrancar todavía no hay
     // userId (la restauración de Supabase es asíncrona).
     effect(() => {
