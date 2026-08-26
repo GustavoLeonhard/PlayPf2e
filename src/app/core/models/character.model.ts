@@ -300,8 +300,15 @@ export interface CharacterState {
    */
   effects?: { id: string; active?: boolean }[];
   focusPoints: number;
-  /** Escudo: si esta alzado (dura hasta el inicio de tu proximo turno) y como esta de HP. */
-  shield: { raised: boolean; hp: number };
+  /**
+   * Escudo: si esta alzado (dura hasta el inicio de tu proximo turno) y como
+   * esta de HP.
+   *
+   * `hp` es OPCIONAL, y esa es la diferencia entre "todavia no le pego nadie" y
+   * "esta destruido". Guardando un cero para el primer caso, un escudo recien
+   * equipado aparecia roto: cero es un valor legitimo, no un "sin dato".
+   */
+  shield: { raised: boolean; hp?: number };
   /**
    * Garbo (panache) del Swashbuckler. Es binario: lo tenés o no lo tenés, no se
    * acumula. Dura entre turnos y se pierde al usar un finisher o al terminar el
@@ -376,7 +383,7 @@ export function emptyState(): CharacterState {
     heroPoints: 1,
     conditions: [],
     focusPoints: 0,
-    shield: { raised: false, hp: 0 },
+    shield: { raised: false },
     panache: false,
     coins: 0,
     purse: { pp: 0, gp: 0, sp: 0, cp: 0 },

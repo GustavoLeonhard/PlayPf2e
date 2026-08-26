@@ -15,7 +15,18 @@ export interface Buscable {
   description?: string;
 }
 
-const sinHtml = (texto: string) => texto.replace(/<[^>]+>/g, ' ');
+/**
+ * El texto del pack sin sus etiquetas, en una sola línea.
+ *
+ * Se exporta porque además de buscar, sirve para mostrarlo donde no entra HTML:
+ * el tooltip de una condición o de un efecto es texto plano y nada más.
+ */
+export const sinHtml = (texto: string) =>
+  texto
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;|&#\d+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 /**
  * Filtra y ordena: primero los que coinciden por nombre, después por texto.
