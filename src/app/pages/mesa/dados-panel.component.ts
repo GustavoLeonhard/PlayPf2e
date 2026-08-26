@@ -14,24 +14,29 @@ import { mensajeDeError } from '../../core/services/party.service';
   selector: 'app-dados-panel',
   template: `
     <div class="dados">
-      <div class="lista-dados">
+      <div class="fila-dados">
+        <!--
+          Cuantos dados. Va ANTES de los botones y no adentro de cada uno para
+          que se lea como la formula que arma: "5" "d10" es 5d10.
+        -->
+        <input
+          class="cuantos"
+          type="number"
+          min="1"
+          max="99"
+          title="Cuántos dados"
+          [value]="cuantos()"
+          (input)="setCuantos($any($event.target).value)"
+        />
         @for (c of caras; track c) {
-          <label class="dado">
-            <span>d{{ c }}</span>
-            <input type="number" min="0" max="99" step="1" inputmode="numeric" [value]="cantidadDe(c)" (input)="cambiarCantidad(c, $any($event.target).value)" aria-label="Cantidad de d{{ c }} (de 0 a 99)" />
-          </label>
+          <button class="chip" [title]="cuantos() + 'd' + c" (click)="tirar(cuantos() + 'd' + c)">d{{ c }}</button>
         }
       </div>
 
-      <label class="modificador">
-        <span>Modificador</span>
-        <input #modificador type="number" value="0" step="1" inputmode="numeric" aria-label="Modificador de la tirada" />
-      </label>
-
-      <div class="acciones">
-        <button class="btn tirar" type="button" (click)="tirarSeleccion(modificador.value)">Tirar dados</button>
-        <button class="btn secundario" type="button" (click)="limpiar(modificador)">Limpiar</button>
-      </div>
+      <form class="formula" (submit)="tirarFormula($event)">
+        <input #f type="text" placeholder="2d6+3" autocomplete="off" />
+        <button class="btn" type="submit">Tirar</button>
+      </form>
 
       <label class="quien">
         <span class="muted small">La ven</span>
@@ -65,52 +70,33 @@ import { mensajeDeError } from '../../core/services/party.service';
       font-size: 0.78rem;
     }
 
-    .lista-dados {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.35rem;
-    }
-
-    .dado {
-      display: grid;
-      /* Dos cifras alcanzan para una tirada normal; no hace falta que el
-         selector de cantidad estire cada columna. */
-      grid-template-columns: 2.2rem 4.2rem;
-      align-items: center;
-      gap: 0.25rem;
-    }
-
-    .dado span {
-      font-weight: 700;
-    }
-
-    .dado input {
-      width: 4.2rem;
-    }
-
-    .modificador input {
-      min-width: 0;
-      width: 100%;
-    }
-
-    .acciones {
+    .fila-dados {
       display: flex;
-      gap: 0.4rem;
-    }
-
-    .tirar {
-      flex: 1 1 auto;
-    }
-
-    .secundario {
-      flex: 0 0 auto;
-    }
-
-    .modificador {
-      display: grid;
-      grid-template-columns: 1fr 5rem;
+      flex-wrap: wrap;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.2rem;
+    }
+
+    .fila-dados .chip {
+      padding: 0.1rem 0.35rem;
+      font-size: 0.78rem;
+    }
+
+    .cuantos {
+      width: 2.4rem;
+      padding: 0.1rem 0.2rem;
+      font: inherit;
+      text-align: center;
+    }
+
+    .formula {
+      display: flex;
+      gap: 0.3rem;
+    }
+
+    .formula input {
+      flex: 1 1 auto;
+      min-width: 0;
     }
 
     .quien {
@@ -163,7 +149,15 @@ export class DadosPanelComponent {
   private chat = inject(PartyChatService);
 
   readonly caras = [4, 6, 8, 10, 12, 20, 100];
-  readonly seleccion = signal<Record<number, number>>({});
+
+  /** Cuántos dados de la cara que aprietes. No se guarda: es del momento. */
+  readonly cuantos = signal(1);
+
+  setCuantos(valor: string) {
+    const n = Math.round(Number(valor));
+    // Cero dados no es una tirada, y noventa y nueve ya es un accidente.
+    this.cuantos.set(Number.isNaN(n) ? 1 : Math.min(99, Math.max(1, n)));
+  }
   readonly visibilidad = signal<'todos' | 'master' | 'yo'>('todos');
   readonly ultima = signal<{ total: number; detail: string } | null>(null);
   readonly error = signal<string | null>(null);
@@ -182,36 +176,21 @@ export class DadosPanelComponent {
       .catch((e) => this.error.set(mensajeDeError(e)));
   }
 
-  cantidadDe(caras: number) {
-    return this.seleccion()[caras] ?? 0;
-  }
+  tirarFormula(evento: Event) {
+    evento.preventDefault();
+    const input = (evento.target as HTMLFormElement).querySelector('input')!;
+    const formula = input.value.trim();
+    if (!formula) return;
 
-  cambiarCantidad(caras: number, cantidad: string) {
-    // Se puede escribir o pegar cualquier cantidad, pero nunca sale del rango
-    // razonable de 0 a 99 ni admite fracciones o texto.
-    const numero = Number(cantidad);
-    const normalizado = Number.isInteger(numero) && numero >= 0 ? Math.min(99, numero) : 0;
-    this.seleccion.update((actual) => ({ ...actual, [caras]: normalizado }));
-  }
-
-  limpiar(modificador: HTMLInputElement) {
-    this.seleccion.set({});
-    modificador.value = '0';
     this.error.set(null);
-  }
-
-  tirarSeleccion(modificador: string) {
-    const bono = Number(modificador);
-    const dados = this.caras
-      .map((caras) => ({ caras, cantidad: this.cantidadDe(caras) }))
-      .filter(({ cantidad }) => Number.isInteger(cantidad) && cantidad > 0);
-    if (!dados.length || !Number.isFinite(bono)) {
-      this.error.set('Elegí al menos un dado y escribí un modificador numérico.');
+    const r = rollFormula(formula);
+    // `rollFormula` no valida: una fórmula inventada da 0 y ningún detalle.
+    if (!r.detail) {
+      this.error.set(`No entiendo "${formula}". Probá algo como 2d6+3.`);
       return;
     }
 
-    this.error.set(null);
-    const formula = `${dados.map(({ caras, cantidad }) => `${cantidad}d${caras}`).join('+')}${bono > 0 ? '+' : ''}${bono || ''}`;
     this.tirar(formula);
+    input.value = '';
   }
 }
