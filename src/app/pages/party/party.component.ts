@@ -6,6 +6,7 @@ import type { Party, PartyMemberView } from '../../core/models/party.model';
 import { AuthService } from '../../core/services/auth.service';
 import { CharacterService } from '../../core/services/character.service';
 import { PartyService, mensajeDeError } from '../../core/services/party.service';
+import { PartyFilesComponent } from './party-files.component';
 
 /**
  * La partida.
@@ -15,7 +16,7 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
  */
 @Component({
   selector: 'app-party',
-  imports: [RouterLink],
+  imports: [RouterLink, PartyFilesComponent],
   template: `
     @if (party(); as p) {
       <div class="container">
@@ -126,6 +127,10 @@ import { PartyService, mensajeDeError } from '../../core/services/party.service'
             </div>
           }
         </section>
+
+        @if (soyGm()) {
+          <app-party-files [partyId]="p.id" />
+        }
 
         <div class="salida">
           @if (soyGm()) {

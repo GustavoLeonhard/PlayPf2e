@@ -21,6 +21,8 @@ import { AuthService } from '../../core/services/auth.service';
 import { VozService } from '../../core/services/voz.service';
 import { PipService } from '../../core/services/pip.service';
 import { TrackDirective } from '../../shared/track.directive';
+import { FondosMesaComponent } from './fondos-mesa.component';
+import { AudioPanelComponent } from './audio-panel.component';
 
 /**
  * La mesa: donde se juega.
@@ -38,10 +40,12 @@ import { TrackDirective } from '../../shared/track.directive';
     DadosPanelComponent,
     NotaPanelComponent,
     JugadorPanelComponent,
+    FondosMesaComponent,
+    AudioPanelComponent,
     TrackDirective,
   ],
   template: `
-    <div class="mesa">
+    <div class="mesa" [style.--ancho-chat.px]="anchoChat()">
       <!-- El chat vive fijo a la izquierda: es lo único que se mira siempre. -->
       <aside class="chat">
         <header class="chat-head">
@@ -142,11 +146,25 @@ import { TrackDirective } from '../../shared/track.directive';
         </form>
       </aside>
 
+      <!-- Se arrastra para cederle espacio al tablero sin esconder el chat. -->
+      <div
+        class="separador-chat"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Cambiar ancho del chat"
+        [attr.aria-valuenow]="anchoChat()"
+        (pointerdown)="iniciarResizeChat($event)"
+        (pointermove)="redimensionarChat($event)"
+        (pointerup)="terminarResizeChat()"
+        (pointercancel)="terminarResizeChat()"
+      ></div>
+
 <!--
         El lienzo. Las ventanas van en posición absoluta acá adentro, así que
         arrastrar no puede sacarlas de la pantalla entera, solo de este marco.
       -->
       <section class="lienzo">
+        <app-fondos-mesa #fondos [partyId]="id()" [puedeGestionar]="party()?.gm_id === auth.userId()" />
         @if (ventanas.abierta('pj')) {
           <app-ventana tipo="pj" titulo="Personaje" (sacar)="sacarAfuera('pj')">
             <app-pj-panel [partyId]="id()" />
@@ -157,8 +175,11 @@ import { TrackDirective } from '../../shared/track.directive';
             <app-dados-panel [partyId]="id()" />
           </app-ventana>
         }
+        @if (ventanas.abierta('audio')) {
+          <app-ventana tipo="audio" titulo="Audio" (sacar)="sacarAfuera('audio')"><app-audio-panel [partyId]="id()" [esGm]="party()?.gm_id === auth.userId()" /></app-ventana>
+        }
 
-        @for (n of notasOrdenadas(); track n.id) {
+        @for (n of notasParaVentanas(); track n.id) {
           @if (ventanas.abierta(clave(n.id))) {
             <app-ventana
               [tipo]="clave(n.id)"
@@ -212,9 +233,6 @@ import { TrackDirective } from '../../shared/track.directive';
           }
         }
 
-        @if (!hayAlgoAbierto()) {
-          <p class="muted vacio-lienzo">Abrí lo que necesites con los botones de la derecha.</p>
-        }
       </section>
 
       <!-- La botonera: prende y apaga ventanas, nada más. -->
@@ -225,8 +243,18 @@ import { TrackDirective } from '../../shared/track.directive';
         <button class="boton" [class.on]="ventanas.abierta('dados')" (click)="ventanas.alternar('dados')">
           <span class="icono">🎲</span><span class="rotulo">Dados</span>
         </button>
+        <button class="boton" [class.on]="ventanas.abierta('audio')" (click)="ventanas.alternar('audio')">
+          <span class="icono">🔊</span><span class="rotulo">Audio</span>
+        </button>
 
-        <button class="boton" title="Crear una nota" (click)="nuevaNota()">
+        @if (party()?.gm_id === auth.userId()) {
+          <label class="boton" title="Añadir archivo" aria-label="Añadir archivo">
+            <span class="icono">📎</span><span class="rotulo">Archivo</span>
+            <input type="file" accept="image/jpeg,image/png,image/webp,audio/*" hidden (change)="fondos.subir($event)" />
+          </label>
+        }
+
+        <button class="boton" [disabled]="creandoNota()" title="Crear una nota" (click)="nuevaNota()">
           <span class="icono">➕</span><span class="rotulo">Nota</span>
         </button>
 
@@ -235,7 +263,7 @@ import { TrackDirective } from '../../shared/track.directive';
           es el que es; el título entero va en el tooltip.
         -->
         @if (notasOrdenadas().length) {
-          <hr class="separador" />
+          <div class="grupo-notas"><span>Notas</span></div>
         }
         @for (n of notasOrdenadas(); track n.id) {
           <button
@@ -316,8 +344,8 @@ import { TrackDirective } from '../../shared/track.directive';
   styles: `
     .mesa {
       display: grid;
-      grid-template-columns: minmax(18rem, 24rem) 1fr auto;
-      gap: 0.8rem;
+      grid-template-columns: minmax(12rem, var(--ancho-chat, 18rem)) 0.45rem 1fr auto;
+      gap: 0.5rem;
       height: calc(100vh - 4rem);
       padding: 0.8rem;
     }
@@ -329,6 +357,18 @@ import { TrackDirective } from '../../shared/track.directive';
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
+    }
+
+    .separador-chat {
+      cursor: col-resize;
+      border-radius: 999px;
+      touch-action: none;
+      /* El área de agarre es amplia, pero la raya se mantiene discreta. */
+      background: linear-gradient(to right, transparent 40%, var(--border) 40% 60%, transparent 60%);
+    }
+
+    .separador-chat:hover {
+      background: linear-gradient(to right, transparent 35%, var(--accent) 35% 65%, transparent 65%);
     }
 
     .chat-head {
@@ -496,6 +536,17 @@ import { TrackDirective } from '../../shared/track.directive';
       margin: 0.2rem 0;
     }
 
+    .grupo-notas {
+      display: grid;
+      place-items: center;
+      padding: 0.25rem 0;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
     .rotulo {
       overflow: hidden;
       text-overflow: ellipsis;
@@ -574,6 +625,10 @@ import { TrackDirective } from '../../shared/track.directive';
         height: auto;
       }
 
+      .separador-chat {
+        display: none;
+      }
+
       .botonera {
         flex-direction: row;
         justify-content: center;
@@ -589,10 +644,13 @@ export class MesaComponent implements OnDestroy {
   readonly id = input.required<string>();
 
   readonly svc = inject(PartyService);
-  private readonly auth = inject(AuthService);
+  readonly auth = inject(AuthService);
   readonly chat = inject(PartyChatService);
 
   readonly party = signal<Party | null>(null);
+  /** Ancho del chat en píxeles; se conserva cómodo pero el tablero manda. */
+  readonly anchoChat = signal(324);
+  private arrastrandoChat = false;
   readonly ventanas = inject(VentanasService);
   readonly notas = inject(PartyNotesService);
 
@@ -648,23 +706,59 @@ export class MesaComponent implements OnDestroy {
   readonly notasOrdenadas = computed(() =>
     [...this.notas.lista()].sort((a, b) => this.ventanas.antiguedad(claveDeNota(a.id)) - this.ventanas.antiguedad(claveDeNota(b.id))),
   );
+  /** Incluye las nuevas sin publicar para que estén abiertas, pero no las
+      incluye en la botonera hasta que se guarden. */
+  readonly notasParaVentanas = computed(() => [...this.notasOrdenadas(), ...this.notas.borradores()]);
 
   readonly hayAlgoAbierto = computed(
     () =>
       this.ventanas.abierta('pj') ||
       this.ventanas.abierta('dados') ||
+      this.ventanas.abierta('audio') ||
       this.notas.lista().some((n) => this.ventanas.abierta(claveDeNota(n.id))) ||
       this.jugadores().some((j) => this.ventanas.abierta(claveDeJugador(j.user_id))),
   );
 
+  iniciarResizeChat(evento: PointerEvent) {
+    this.arrastrandoChat = true;
+    (evento.currentTarget as HTMLElement).setPointerCapture(evento.pointerId);
+    this.redimensionarChat(evento);
+  }
+
+  redimensionarChat(evento: PointerEvent) {
+    if (!this.arrastrandoChat) return;
+    // No deja que el chat tape el tablero ni que quede inutilizable.
+    const maximo = Math.min(500, Math.round(window.innerWidth * 0.45));
+    this.anchoChat.set(Math.min(maximo, Math.max(216, Math.round(evento.clientX - 8))));
+  }
+
+  terminarResizeChat() {
+    this.arrastrandoChat = false;
+  }
+
   /** Crear y abrir de una: nadie crea una nota para no escribirla. */
   async nuevaNota() {
+    if (this.creandoNota()) return;
+    this.creandoNota.set(true);
     try {
-      const nota = await this.notas.crear(this.id());
+      const nota = await this.notas.crearBorrador(this.id());
       if (nota) this.ventanas.alternar(claveDeNota(nota.id));
     } catch (e) {
       this.error.set(mensajeDeError(e));
+    } finally {
+      this.creandoNota.set(false);
     }
+  }
+
+  /** Una nota sin renombrar sigue siendo reconocible en la botonera. */
+  private tituloNotaNueva() {
+    const fecha = new Intl.DateTimeFormat('es-AR', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date());
+    return `Nota sin título · ${fecha.replace('.', '')}`;
   }
 
   /**
@@ -703,6 +797,7 @@ export class MesaComponent implements OnDestroy {
 
   readonly enviando = signal(false);
   readonly error = signal<string | null>(null);
+  readonly creandoNota = signal(false);
 
   private readonly entrada = viewChild<ElementRef<HTMLInputElement>>('entrada');
   private readonly hilo = viewChild<ElementRef<HTMLElement>>('hilo');
@@ -715,7 +810,12 @@ export class MesaComponent implements OnDestroy {
       if (!id) return;
       void this.svc
         .get(id)
-        .then((p) => this.party.set(p))
+        .then((p) => {
+          this.party.set(p);
+          // Para un jugador Audio solo muestra título y volumen; no conserva
+          // el alto grande que el GM necesita para elegir y controlar pistas.
+          if (p && p.gm_id !== this.auth.userId()) this.ventanas.redimensionar('audio', 300, 140);
+        })
         .catch((e) => this.error.set(mensajeDeError(e)));
       void this.chat.abrir(id).catch((e) => this.error.set(mensajeDeError(e)));
       void this.notas.abrir(id).catch((e) => this.error.set(mensajeDeError(e)));

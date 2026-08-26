@@ -20,6 +20,9 @@ export class PartyNotesService {
   }
 
   private readonly notas = signal<PartyNote[]>([]);
+  /** Notas aún no publicadas: viven solo mientras la mesa está abierta. */
+  private readonly borradoresNuevos = signal<PartyNote[]>([]);
+  private readonly publicadosDesdeBorrador = new Map<string, string>();
   readonly cargando = signal(false);
 
   /** Las notas de la mesa, la más tocada primero. */
@@ -27,7 +30,11 @@ export class PartyNotesService {
     [...this.notas()].sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
   );
 
-  una = (id: string) => this.notas().find((n) => n.id === id) ?? null;
+  una = (id: string) => {
+    const real = this.publicadosDesdeBorrador.get(id) ?? id;
+    return this.notas().find((n) => n.id === real) ?? this.borradoresNuevos().find((n) => n.id === id) ?? null;
+  };
+  readonly borradores = computed(() => this.borradoresNuevos());
 
   private canal: RealtimeChannel | null = null;
   private partyId: string | null = null;
@@ -94,6 +101,31 @@ export class PartyNotesService {
     this.canal = null;
     this.partyId = null;
     this.notas.set([]);
+    this.borradoresNuevos.set([]);
+    this.publicadosDesdeBorrador.clear();
+  }
+
+  async crearBorrador(partyId: string): Promise<PartyNote | null> {
+    const autor = this.auth.userId();
+    if (!autor) return null;
+    const ahora = new Date().toISOString();
+    const borrador: PartyNote = { id: `borrador:${crypto.randomUUID()}`, party_id: partyId, author_id: autor, title: 'Nota nueva', body: '', created_at: ahora, updated_at: ahora };
+    this.borradoresNuevos.update((notas) => [...notas, borrador]);
+    return borrador;
+  }
+
+  esBorradorNuevo(id: string) { return id.startsWith('borrador:') && !this.publicadosDesdeBorrador.has(id); }
+
+  async publicarBorrador(id: string, cambios: { title?: string; body?: string }): Promise<PartyNote | null> {
+    const borrador = this.borradoresNuevos().find((nota) => nota.id === id);
+    if (!borrador || !this.client) return null;
+    const { data, error } = await this.client.from('party_notes').insert({ party_id: borrador.party_id, author_id: borrador.author_id, title: cambios.title ?? borrador.title, body: cambios.body ?? borrador.body }).select().single();
+    if (error) throw error;
+    const nota = data as PartyNote;
+    this.notas.update((notas) => [...notas, nota]);
+    this.borradoresNuevos.update((notas) => notas.filter((nota) => nota.id !== id));
+    this.publicadosDesdeBorrador.set(id, nota.id);
+    return nota;
   }
 
   async crear(partyId: string, title = 'Nota nueva'): Promise<PartyNote | null> {
@@ -128,6 +160,9 @@ export class PartyNotesService {
   async guardar(id: string, cambios: { title?: string; body?: string }, desde?: string | null): Promise<boolean> {
     if (!this.client) return false;
 
+    if (this.esBorradorNuevo(id)) return !!(await this.publicarBorrador(id, cambios));
+    id = this.publicadosDesdeBorrador.get(id) ?? id;
+
     let consulta = this.client.from('party_notes').update(cambios).eq('id', id);
     if (desde) consulta = consulta.eq('updated_at', desde);
 
@@ -142,6 +177,11 @@ export class PartyNotesService {
   }
 
   async borrar(id: string): Promise<void> {
+    if (this.esBorradorNuevo(id)) {
+      this.borradoresNuevos.update((notas) => notas.filter((nota) => nota.id !== id));
+      return;
+    }
+    id = this.publicadosDesdeBorrador.get(id) ?? id;
     if (!this.client) return;
     const { error } = await this.client.from('party_notes').delete().eq('id', id);
     if (error) throw error;

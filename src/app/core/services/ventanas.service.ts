@@ -7,7 +7,7 @@ import { Injectable, signal } from '@angular/core';
  * eso el tipo es abierto: la botonera crece con lo que escribís, no con lo que
  * está escrito acá.
  */
-export type TipoDeVentana = 'pj' | 'dados' | `nota:${string}` | `jugador:${string}`;
+export type TipoDeVentana = 'pj' | 'dados' | 'audio' | `nota:${string}` | `jugador:${string}`;
 
 export const claveDeNota = (id: string): TipoDeVentana => `nota:${id}`;
 
@@ -33,6 +33,7 @@ const PREFIJO = 'pf2e.ventanas.';
 const POR_DEFECTO: Record<string, EstadoDeVentana> = {
   pj: { abierta: true, x: 24, y: 24, ancho: 640, alto: 560 },
   dados: { abierta: false, x: 700, y: 24, ancho: 300, alto: 320 },
+  audio: { abierta: false, x: 700, y: 360, ancho: 300, alto: 160 },
 };
 
 /*
