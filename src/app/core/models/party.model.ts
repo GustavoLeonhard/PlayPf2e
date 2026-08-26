@@ -17,6 +17,26 @@ export interface Party {
 
 export type PartyRole = 'gm' | 'player';
 
+/**
+ * Una partida como se ve en el listado.
+ *
+ * Máster y personaje son excluyentes por definición: el que dirige no juega con
+ * un PJ, y el que juega no dirige. Por eso una fila siempre tiene una de las
+ * dos cosas y nunca las dos.
+ */
+export interface PartyRow extends Party {
+  gmName: string;
+  soyGm: boolean;
+  /** Con qué PJ jugás. `null` si dirigís, o si todavía no elegiste. */
+  characterName: string | null;
+  characterLevel: number | null;
+  characterAncestry: string | null;
+  characterHeritage: string | null;
+  characterClass: string | null;
+  /** Data URL del retrato, o '' si el PJ no tiene ninguno. */
+  characterPortrait: string;
+}
+
 export interface PartyMember {
   party_id: string;
   user_id: string;
