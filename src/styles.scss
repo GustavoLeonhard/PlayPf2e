@@ -26,38 +26,6 @@
   --radius: 10px;
 }
 
-/* Tema claro: los mismos tokens permiten que cada panel conserve contraste. */
-:root.light {
-  --bg: #f3eee6;
-  --surface: #fffdf9;
-  --surface-2: #f2ece3;
-  --border: #cfc2b4;
-  --text: #302820;
-  --muted: #74685d;
-  --accent: #9a7427;
-  --accent-strong: #684b10;
-  --danger: #a33f37;
-  --ok: #487c4e;
-  --sobre-acento: #fffdf9;
-  --sombra: #4a38221f;
-}
-
-/* Gris neutro, entre el pergamino oscuro y el claro; recuerda al editor. */
-:root.medium {
-  --bg: #30343b;
-  --surface: #3b4048;
-  --surface-2: #484e58;
-  --border: #606976;
-  --text: #f0f2f5;
-  --muted: #c0c6ce;
-  --accent: #d5aa4f;
-  --accent-strong: #ffe0a0;
-  --danger: #f08078;
-  --ok: #93c994;
-  --sobre-acento: #27231c;
-  --sombra: #0007;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -70,9 +38,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  /* Casi todo el resto está en rem, así que este número manda en toda la app.
-     La mesa necesita dejar aire para el mapa, fondos y ventanas flotantes. */
-  font-size: 18px;
+  /* Casi todo el resto está en rem, así que este número manda en toda la app. */
+  font-size: 22px;
   line-height: 1.5;
 }
 

@@ -252,9 +252,6 @@ export class NotaPanelComponent {
    * guardado automático que había antes.
    */
   anotarBorrador() {
-    // Una nota recién creada todavía no existe en la base ni en la lista: se
-    // conserva solo mientras siga abierta esta mesa y se descarta al salir.
-    if (this.notas.esBorradorNuevo(this.notaId())) return;
     const borrador: Borrador = {
       title: this.tituloLocal(),
       body: this.cuerpoLocal(),
@@ -268,7 +265,6 @@ export class NotaPanelComponent {
   }
 
   private olvidarBorrador() {
-    if (this.notas.esBorradorNuevo(this.notaId())) return;
     try {
       localStorage.removeItem(this.clave());
     } catch {
@@ -284,7 +280,7 @@ export class NotaPanelComponent {
     this.guardando.set(true);
     this.error.set(null);
     try {
-      const guardado = await this.notas.guardar(this.notaId(), this.cambios(), this.base());
+      const guardado = await this.notas.guardar(n.id, this.cambios(), this.base());
       if (!guardado) {
         // Alguien se adelantó: lo tuyo sigue en el textarea y en el borrador.
         this.choque.set(true);
@@ -320,7 +316,7 @@ export class NotaPanelComponent {
 
     this.guardando.set(true);
     try {
-      await this.notas.forzar(this.notaId(), this.cambios());
+      await this.notas.forzar(n.id, this.cambios());
       this.limpiar();
     } catch (e) {
       this.error.set(mensajeDeError(e));
@@ -342,7 +338,7 @@ export class NotaPanelComponent {
     const n = this.nota();
     if (!n) return;
     try {
-      await this.notas.borrar(this.notaId());
+      await this.notas.borrar(n.id);
       this.olvidarBorrador();
     } catch (e) {
       this.error.set(mensajeDeError(e));
