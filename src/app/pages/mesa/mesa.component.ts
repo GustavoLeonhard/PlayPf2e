@@ -22,6 +22,7 @@ import { VozService } from '../../core/services/voz.service';
 import { PipService } from '../../core/services/pip.service';
 import { TrackDirective } from '../../shared/track.directive';
 import { FondosMesaComponent } from './fondos-mesa.component';
+import { AudioPanelComponent } from './audio-panel.component';
 
 /**
  * La mesa: donde se juega.
@@ -40,6 +41,7 @@ import { FondosMesaComponent } from './fondos-mesa.component';
     NotaPanelComponent,
     JugadorPanelComponent,
     FondosMesaComponent,
+    AudioPanelComponent,
     TrackDirective,
   ],
   template: `
@@ -162,7 +164,7 @@ import { FondosMesaComponent } from './fondos-mesa.component';
         arrastrar no puede sacarlas de la pantalla entera, solo de este marco.
       -->
       <section class="lienzo">
-        <app-fondos-mesa #fondos [partyId]="id()" />
+        <app-fondos-mesa #fondos [partyId]="id()" [puedeGestionar]="party()?.gm_id === auth.userId()" />
         @if (ventanas.abierta('pj')) {
           <app-ventana tipo="pj" titulo="Personaje" (sacar)="sacarAfuera('pj')">
             <app-pj-panel [partyId]="id()" />
@@ -173,8 +175,11 @@ import { FondosMesaComponent } from './fondos-mesa.component';
             <app-dados-panel [partyId]="id()" />
           </app-ventana>
         }
+        @if (ventanas.abierta('audio')) {
+          <app-ventana tipo="audio" titulo="Audio" (sacar)="sacarAfuera('audio')"><app-audio-panel [partyId]="id()" [esGm]="party()?.gm_id === auth.userId()" /></app-ventana>
+        }
 
-        @for (n of notasOrdenadas(); track n.id) {
+        @for (n of notasParaVentanas(); track n.id) {
           @if (ventanas.abierta(clave(n.id))) {
             <app-ventana
               [tipo]="clave(n.id)"
@@ -238,14 +243,20 @@ import { FondosMesaComponent } from './fondos-mesa.component';
         <button class="boton" [class.on]="ventanas.abierta('dados')" (click)="ventanas.alternar('dados')">
           <span class="icono">🎲</span><span class="rotulo">Dados</span>
         </button>
+        <button class="boton" [class.on]="ventanas.abierta('audio')" (click)="ventanas.alternar('audio')">
+          <span class="icono">🔊</span><span class="rotulo">Audio</span>
+        </button>
+
+        @if (party()?.gm_id === auth.userId()) {
+          <label class="boton" title="Añadir archivo" aria-label="Añadir archivo">
+            <span class="icono">📎</span><span class="rotulo">Archivo</span>
+            <input type="file" accept="image/jpeg,image/png,image/webp,audio/*" hidden (change)="fondos.subir($event)" />
+          </label>
+        }
 
         <button class="boton" [disabled]="creandoNota()" title="Crear una nota" (click)="nuevaNota()">
           <span class="icono">➕</span><span class="rotulo">Nota</span>
         </button>
-        <label class="boton" title="Añadir imagen" aria-label="Añadir imagen">
-          <span class="icono">🖼</span><span class="rotulo">Añadir imagen</span>
-          <input type="file" accept="image/jpeg,image/png,image/webp" hidden (change)="fondos.subir($event)" />
-        </label>
 
         <!--
           Una nota, un icono. El rótulo son las primeras letras porque el ancho
@@ -633,7 +644,7 @@ export class MesaComponent implements OnDestroy {
   readonly id = input.required<string>();
 
   readonly svc = inject(PartyService);
-  private readonly auth = inject(AuthService);
+  readonly auth = inject(AuthService);
   readonly chat = inject(PartyChatService);
 
   readonly party = signal<Party | null>(null);
@@ -695,11 +706,15 @@ export class MesaComponent implements OnDestroy {
   readonly notasOrdenadas = computed(() =>
     [...this.notas.lista()].sort((a, b) => this.ventanas.antiguedad(claveDeNota(a.id)) - this.ventanas.antiguedad(claveDeNota(b.id))),
   );
+  /** Incluye las nuevas sin publicar para que estén abiertas, pero no las
+      incluye en la botonera hasta que se guarden. */
+  readonly notasParaVentanas = computed(() => [...this.notasOrdenadas(), ...this.notas.borradores()]);
 
   readonly hayAlgoAbierto = computed(
     () =>
       this.ventanas.abierta('pj') ||
       this.ventanas.abierta('dados') ||
+      this.ventanas.abierta('audio') ||
       this.notas.lista().some((n) => this.ventanas.abierta(claveDeNota(n.id))) ||
       this.jugadores().some((j) => this.ventanas.abierta(claveDeJugador(j.user_id))),
   );
@@ -726,7 +741,7 @@ export class MesaComponent implements OnDestroy {
     if (this.creandoNota()) return;
     this.creandoNota.set(true);
     try {
-      const nota = await this.notas.crear(this.id(), this.tituloNotaNueva());
+      const nota = await this.notas.crearBorrador(this.id());
       if (nota) this.ventanas.alternar(claveDeNota(nota.id));
     } catch (e) {
       this.error.set(mensajeDeError(e));
@@ -795,7 +810,12 @@ export class MesaComponent implements OnDestroy {
       if (!id) return;
       void this.svc
         .get(id)
-        .then((p) => this.party.set(p))
+        .then((p) => {
+          this.party.set(p);
+          // Para un jugador Audio solo muestra título y volumen; no conserva
+          // el alto grande que el GM necesita para elegir y controlar pistas.
+          if (p && p.gm_id !== this.auth.userId()) this.ventanas.redimensionar('audio', 300, 140);
+        })
         .catch((e) => this.error.set(mensajeDeError(e)));
       void this.chat.abrir(id).catch((e) => this.error.set(mensajeDeError(e)));
       void this.notas.abrir(id).catch((e) => this.error.set(mensajeDeError(e)));

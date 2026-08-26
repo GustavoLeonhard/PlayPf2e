@@ -125,5 +125,18 @@ export interface PartyScene {
   author_id: string;
   title: string;
   storage_path: string;
+  size_bytes: number;
+  created_at: string;
+}
+
+/** Un archivo de audio que el GM dejó disponible para su mesa. */
+export interface PartyAudioFile {
+  id: string;
+  party_id: string;
+  author_id: string;
+  title: string;
+  storage_path: string;
+  size_bytes: number;
+  mime_type: string;
   created_at: string;
 }

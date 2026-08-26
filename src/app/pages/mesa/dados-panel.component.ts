@@ -18,11 +18,7 @@ import { mensajeDeError } from '../../core/services/party.service';
         @for (c of caras; track c) {
           <label class="dado">
             <span>d{{ c }}</span>
-            <select [value]="cantidadDe(c)" (change)="cambiarCantidad(c, $any($event.target).value)" aria-label="Cantidad de d{{ c }}">
-              @for (n of cantidades; track n) {
-                <option [value]="n">{{ n }}</option>
-              }
-            </select>
+            <input type="number" min="0" max="99" step="1" inputmode="numeric" [value]="cantidadDe(c)" (input)="cambiarCantidad(c, $any($event.target).value)" aria-label="Cantidad de d{{ c }} (de 0 a 99)" />
           </label>
         }
       </div>
@@ -88,7 +84,7 @@ import { mensajeDeError } from '../../core/services/party.service';
       font-weight: 700;
     }
 
-    .dado select {
+    .dado input {
       width: 4.2rem;
     }
 
@@ -167,7 +163,6 @@ export class DadosPanelComponent {
   private chat = inject(PartyChatService);
 
   readonly caras = [4, 6, 8, 10, 12, 20, 100];
-  readonly cantidades = Array.from({ length: 100 }, (_, cantidad) => cantidad);
   readonly seleccion = signal<Record<number, number>>({});
   readonly visibilidad = signal<'todos' | 'master' | 'yo'>('todos');
   readonly ultima = signal<{ total: number; detail: string } | null>(null);
@@ -192,7 +187,11 @@ export class DadosPanelComponent {
   }
 
   cambiarCantidad(caras: number, cantidad: string) {
-    this.seleccion.update((actual) => ({ ...actual, [caras]: Number(cantidad) }));
+    // Se puede escribir o pegar cualquier cantidad, pero nunca sale del rango
+    // razonable de 0 a 99 ni admite fracciones o texto.
+    const numero = Number(cantidad);
+    const normalizado = Number.isInteger(numero) && numero >= 0 ? Math.min(99, numero) : 0;
+    this.seleccion.update((actual) => ({ ...actual, [caras]: normalizado }));
   }
 
   limpiar(modificador: HTMLInputElement) {
